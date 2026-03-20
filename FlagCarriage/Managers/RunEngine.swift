@@ -1,8 +1,22 @@
 import Foundation
+import UIKit   // for haptic feedback
+
+// MARK: - Haptics helper
+// Centralised so every engine can trigger feedback without importing UIKit individually.
+
+struct Haptics {
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+    static func notification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        UINotificationFeedbackGenerator().notificationOccurred(type)
+    }
+    static func selection() {
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+}
 
 // MARK: - Countdown Engine
-// Shared 5-second countdown used before any run or sim starts.
-// The view layer observes this and shows the overlay.
 
 class CountdownEngine: ObservableObject {
     @Published var isCountingDown = false
@@ -11,19 +25,22 @@ class CountdownEngine: ObservableObject {
     private var timer: Timer?
     private var onComplete: (() -> Void)?
 
-    /// Start a 5-second countdown, then call onComplete.
     func start(then onComplete: @escaping () -> Void) {
         self.onComplete = onComplete
         count = 5
         isCountingDown = true
         timer?.invalidate()
+        Haptics.impact(.light)   // first tick
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.count -= 1
             if self.count <= 0 {
                 self.timer?.invalidate()
                 self.isCountingDown = false
+                Haptics.notification(.success)   // buzz on launch
                 self.onComplete?()
+            } else {
+                Haptics.impact(.light)           // tick each second
             }
         }
     }
@@ -33,14 +50,14 @@ class CountdownEngine: ObservableObject {
         timer = nil
         isCountingDown = false
         count = 5
+        Haptics.impact(.rigid)
     }
 }
 
 // MARK: - Run Engine
-// Plays back a single CarriageRun step by step.
 
 class RunEngine: ObservableObject {
-    @Published var isRunning       = false
+    @Published var isRunning        = false
     @Published var currentStepIndex = 0
     @Published var currentRunName   = ""
     @Published var progress: Double = 0
@@ -51,24 +68,24 @@ class RunEngine: ObservableObject {
     private var stepElapsed: Double = 0
     private var steps: [RunStep] = []
     private weak var connection: ConnectionManager?
-    var onFinish: (() -> Void)?      // called when the run completes naturally
+    var onFinish: (() -> Void)?
 
     func start(run: CarriageRun, connection: ConnectionManager) {
-        self.connection = connection
-        steps           = run.steps
-        currentRunName  = run.name
+        self.connection  = connection
+        steps            = run.steps
+        currentRunName   = run.name
         currentStepIndex = 0
-        elapsedTotal    = 0
-        isRunning       = true
+        elapsedTotal     = 0
+        isRunning        = true
         executeCurrentStep()
     }
 
     func stop() {
         timer?.invalidate()
-        timer   = nil
-        isRunning = false
+        timer         = nil
+        isRunning     = false
         connection?.stop()
-        progress  = 0
+        progress      = 0
         timeRemaining = 0
     }
 
@@ -78,6 +95,8 @@ class RunEngine: ObservableObject {
         stepElapsed   = 0
         timeRemaining = step.duration
         progress      = 0
+        // Haptic pulse when each step starts
+        if step.direction != .stop { Haptics.impact(.medium) }
         connection?.setSpeed(step.speed)
         connection?.send(step.direction.rawValue)
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -95,53 +114,43 @@ class RunEngine: ObservableObject {
     }
 
     private func finish() {
-        isRunning = false
+        isRunning        = false
         connection?.stop()
         currentStepIndex = 0
         progress         = 0
+        Haptics.notification(.success)
         onFinish?()
     }
 }
 
 // MARK: - Set Engine
-// Plays an entire TrainingSet: runs each CarriageRun in order,
-// with a configurable rest period between each one.
-// Between runs the motor is stopped and a rest countdown is shown.
 
 enum SetPhase {
     case idle
-    case running(runIndex: Int)   // actively executing a run
-    case resting(runIndex: Int)   // rest gap before next run
+    case running(runIndex: Int)
+    case resting(runIndex: Int)
     case finished
 }
 
 class SetEngine: ObservableObject {
     @Published var isRunning      = false
     @Published var phase: SetPhase = .idle
-
-    // Current run progress (forwarded from inner RunEngine)
     @Published var currentRunName    = ""
     @Published var runProgress: Double = 0
     @Published var runTimeRemaining: Double = 0
-    @Published var currentRunIndex   = 0       // 0-based index in the set
+    @Published var currentRunIndex   = 0
     @Published var totalRuns         = 0
-
-    // Rest phase
     @Published var restTimeRemaining: Double = 0
+    // Expose next run name for the rest card
+    @Published var nextRunName: String = ""
 
     private var set: TrainingSet?
     private var store: ProgramStore?
     private weak var connection: ConnectionManager?
-
-    private let runEngine = RunEngine()
+    private let runEngine  = RunEngine()
     private var restTimer: Timer?
-    private var restElapsed: Double = 0
+    private var restElapsed: Double  = 0
     private var restDuration: Double = 0
-
-    // Forward run engine publishers
-    private var runProgressToken: Any?
-    private var runTimeToken: Any?
-    private var runNameToken: Any?
 
     func start(set: TrainingSet, store: ProgramStore, connection: ConnectionManager) {
         self.set        = set
@@ -158,33 +167,40 @@ class SetEngine: ObservableObject {
         restTimer?.invalidate()
         restTimer = nil
         runEngine.stop()
-        isRunning = false
-        phase = .idle
-        currentRunIndex = 0
-        runProgress = 0
+        isRunning         = false
+        phase             = .idle
+        currentRunIndex   = 0
+        runProgress       = 0
         restTimeRemaining = 0
+        nextRunName       = ""
+        Haptics.impact(.rigid)
     }
 
     // MARK: Private
 
     private func executeRun(at index: Int) {
         guard let set = set, let store = store, let connection = connection else { return }
-        guard index < set.entries.count else {
-            finish()
-            return
-        }
+        guard index < set.entries.count else { finish(); return }
+
         let entry = set.entries[index]
         guard let run = store.run(for: entry.runID) else {
-            // Skip missing run
             executeRun(at: index + 1)
             return
         }
+
         currentRunIndex = index
-        phase = .running(runIndex: index)
+        nextRunName     = ""
+        phase           = .running(runIndex: index)
+        Haptics.impact(.medium)
+
         runEngine.onFinish = { [weak self] in
             guard let self = self else { return }
             let restDur = set.entries[index].restDuration
             if index + 1 < set.entries.count && restDur > 0 {
+                // Pre-load next run name for the rest card
+                if let nextRun = store.run(for: set.entries[index + 1].runID) {
+                    self.nextRunName = nextRun.name
+                }
                 self.startRest(duration: restDur, nextIndex: index + 1)
             } else {
                 self.executeRun(at: index + 1)
@@ -199,6 +215,7 @@ class SetEngine: ObservableObject {
         restElapsed       = 0
         restTimeRemaining = duration
         phase = .resting(runIndex: nextIndex)
+        Haptics.impact(.light)
         restTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.restElapsed       += 0.1
@@ -215,19 +232,19 @@ class SetEngine: ObservableObject {
         connection?.stop()
         isRunning = false
         phase     = .finished
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            self.phase = .idle
+        Haptics.notification(.success)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if case .finished = self.phase { self.phase = .idle }
         }
     }
 
     private func observeRunEngine() {
-        // Poll run engine state via a timer — avoids Combine dependency
         Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
             guard let self = self, self.isRunning else { t.invalidate(); return }
             DispatchQueue.main.async {
-                self.runProgress     = self.runEngine.progress
+                self.runProgress      = self.runEngine.progress
                 self.runTimeRemaining = self.runEngine.timeRemaining
-                self.currentRunName  = self.runEngine.currentRunName
+                self.currentRunName   = self.runEngine.currentRunName
             }
         }
     }
@@ -236,8 +253,8 @@ class SetEngine: ObservableObject {
 // MARK: - Cattle Sim Engine
 
 class CattleSimEngine: ObservableObject {
-    @Published var isRunning = false
-    @Published var currentBehaviour = "Idle"
+    @Published var isRunning         = false
+    @Published var currentBehaviour  = "Idle"
     @Published var elapsedTime: Double = 0
     @Published var targetDuration: Double = 0
 
@@ -262,9 +279,10 @@ class CattleSimEngine: ObservableObject {
         timer?.invalidate()
         phaseTimer?.invalidate()
         timer = nil; phaseTimer = nil
-        isRunning = false
+        isRunning        = false
         connection?.stop()
         currentBehaviour = "Stopped"
+        Haptics.impact(.rigid)
     }
 
     private func scheduleNextPhase() {
@@ -278,13 +296,14 @@ class CattleSimEngine: ObservableObject {
                 self?.scheduleNextPhase()
             }
         } else {
-            let flip   = Double.random(in: 0...1) < 0.45
+            let flip     = Double.random(in: 0...1) < 0.45
             let newDir: StepDirection = flip ? (lastDirection == .forward ? .backward : .forward) : lastDirection
             lastDirection    = newDir
             let speed        = Int.random(in: profile.minSpeed...profile.maxSpeed)
             let duration     = Double.random(in: profile.minRunDuration...profile.maxRunDuration)
-            currentBehaviour = "\(newDir == .forward ? "Running forward" : "Cutting back") @ \(Int(Double(speed)/255*100))%"
+            currentBehaviour = "\(newDir == .forward ? "Moving right" : "Cutting left") @ \(Int(Double(speed)/255*100))%"
             targetDuration   = duration
+            Haptics.impact(.light)
             connection?.setSpeed(speed)
             connection?.send(newDir.rawValue)
             phaseTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in

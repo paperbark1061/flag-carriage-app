@@ -17,11 +17,8 @@ enum CowNameGenerator {
         "Bertha", "Lulubelle", "Marigold", "Petunia", "Honeydew", "Clarabelle",
         "Gwendolyn", "Penelope", "Brunhilde", "Mathilda"
     ]
-
     static func generate() -> String {
-        let adj  = adjectives.randomElement() ?? "Rowdy"
-        let name = names.randomElement()      ?? "Bessie"
-        return "\(adj) \(name)"
+        "\(adjectives.randomElement() ?? "Rowdy") \(names.randomElement() ?? "Bessie")"
     }
 }
 
@@ -40,7 +37,7 @@ struct ManualView: View {
     @State private var bumpDirection: StepDirection? = nil
     @State private var bumpDisplayTimer: Timer? = nil
 
-    // Local display state — instant response, no ESP echo needed
+    // Local display state
     @State private var localDirection: String = "S"
     @State private var localSpeed: Int        = 0
 
@@ -48,7 +45,7 @@ struct ManualView: View {
     @StateObject private var recorder  = RunRecorder()
     @State private var showSaveSheet   = false
     @State private var savedBanner     = false
-    @State private var autoName        = ""   // generated when recording stops
+    @State private var autoName        = ""
 
     var isMoving: Bool { isHoldingLeft || isHoldingRight || bumpDirection != nil }
 
@@ -64,18 +61,11 @@ struct ManualView: View {
                 LocalDirectionIndicator(direction: localDirection, speed: localSpeed)
                     .padding(.bottom, 20)
 
-                // Left column | Stop | Right column
                 HStack(alignment: .center, spacing: 16) {
-
                     // LEFT
                     DirectionColumn(
-                        direction: .backward,
-                        arrowIcon: "arrow.left",
-                        color: .blue,
-                        speed: speed,
-                        isHolding: $isHoldingLeft,
-                        bumpDirection: bumpDirection,
-                        bumpProgress: bumpProgress,
+                        direction: .backward, arrowIcon: "arrow.left", color: .blue, speed: speed,
+                        isHolding: $isHoldingLeft, bumpDirection: bumpDirection, bumpProgress: bumpProgress,
                         onBump: { fireBump(direction: .backward) },
                         onHoldPress: {
                             clearBumpState()
@@ -83,11 +73,13 @@ struct ManualView: View {
                             connection.setSpeed(spd); connection.backward()
                             recorder.record(direction: .backward, speed: spd)
                             localDirection = "B"; localSpeed = spd
+                            Haptics.impact(.medium)
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
                             localDirection = "S"; localSpeed = 0
+                            Haptics.impact(.soft)
                         }
                     )
 
@@ -106,13 +98,8 @@ struct ManualView: View {
 
                     // RIGHT
                     DirectionColumn(
-                        direction: .forward,
-                        arrowIcon: "arrow.right",
-                        color: .green,
-                        speed: speed,
-                        isHolding: $isHoldingRight,
-                        bumpDirection: bumpDirection,
-                        bumpProgress: bumpProgress,
+                        direction: .forward, arrowIcon: "arrow.right", color: .green, speed: speed,
+                        isHolding: $isHoldingRight, bumpDirection: bumpDirection, bumpProgress: bumpProgress,
                         onBump: { fireBump(direction: .forward) },
                         onHoldPress: {
                             clearBumpState()
@@ -120,18 +107,19 @@ struct ManualView: View {
                             connection.setSpeed(spd); connection.forward()
                             recorder.record(direction: .forward, speed: spd)
                             localDirection = "F"; localSpeed = spd
+                            Haptics.impact(.medium)
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
                             localDirection = "S"; localSpeed = 0
+                            Haptics.impact(.soft)
                         }
                     )
                 }
 
                 Spacer()
 
-                // Speed + record panel
                 VStack(spacing: 10) {
                     HStack {
                         Text("Speed").font(.headline)
@@ -151,17 +139,18 @@ struct ManualView: View {
                             Button(label) {
                                 speed = Double(val)
                                 if isMoving { connection.setSpeed(val); localSpeed = val }
+                                Haptics.selection()
                             }.buttonStyle(PresetButtonStyle())
                         }
                     }
 
                     Divider().padding(.horizontal)
 
-                    // ── Record Cow controls ──────────────────────────
                     HStack(spacing: 16) {
                         if !recorder.isRecording {
                             Button {
                                 recorder.start()
+                                Haptics.impact(.medium)
                             } label: {
                                 Label("Record Cow", systemImage: "record.circle")
                                     .font(.system(size: 15, weight: .semibold))
@@ -172,6 +161,7 @@ struct ManualView: View {
                         } else {
                             Button {
                                 recorder.stop()
+                                Haptics.impact(.rigid)
                             } label: {
                                 Label("Discard", systemImage: "stop.circle")
                                     .font(.system(size: 15, weight: .semibold))
@@ -197,8 +187,7 @@ struct ManualView: View {
 
                     if savedBanner {
                         Text("✓ Cow saved to Programs")
-                            .font(.caption).foregroundColor(.green)
-                            .transition(.opacity)
+                            .font(.caption).foregroundColor(.green).transition(.opacity)
                     }
                 }
                 .padding(.bottom, 32)
@@ -208,9 +197,9 @@ struct ManualView: View {
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showSaveSheet) {
                 SaveCowSheet(recorder: recorder, suggestedName: autoName) { run in
-                    // Discard returns empty name — skip save
                     if !run.name.isEmpty {
                         store.saveRun(run)
+                        Haptics.notification(.success)
                         withAnimation { savedBanner = true }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                             withAnimation { savedBanner = false }
@@ -229,9 +218,8 @@ struct ManualView: View {
         connection.stop()
         recorder.record(direction: .stop, speed: 0)
         localDirection = "S"; localSpeed = 0
+        Haptics.impact(.rigid)
     }
-
-    // MARK: - Bump logic
 
     func fireBump(direction: StepDirection) {
         if bumpDirection == direction { stopMotor(); return }
@@ -241,6 +229,7 @@ struct ManualView: View {
         connection.setSpeed(spd); connection.send(direction.rawValue)
         recorder.record(direction: direction, speed: spd)
         localDirection = direction == .forward ? "F" : "B"; localSpeed = spd
+        Haptics.impact(.heavy)
 
         let bumpDuration = 3.0; let interval = 0.05; var elapsed = 0.0
         bumpDisplayTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [self] t in
@@ -251,6 +240,7 @@ struct ManualView: View {
                 bumpDirection = nil; bumpProgress = 0
                 connection.stop(); recorder.record(direction: .stop, speed: 0)
                 localDirection = "S"; localSpeed = 0
+                Haptics.impact(.soft)
             }
         }
     }
@@ -267,77 +257,37 @@ struct SaveCowSheet: View {
     @ObservedObject var recorder: RunRecorder
     let suggestedName: String
     var onSave: (CarriageRun) -> Void
-
     @State private var name = ""
     @FocusState private var nameFocused: Bool
-
     var cleanSteps: [RunStep] { recorder.cleanedSteps() }
-
     var body: some View {
         NavigationView {
             Form {
-                // Name section — pre-filled with fun auto name, fully editable
                 Section {
                     HStack {
-                        TextField("Cow name", text: $name)
-                            .focused($nameFocused)
-                        // Shuffle button to generate a new random name
-                        Button {
-                            name = CowNameGenerator.generate()
-                        } label: {
-                            Image(systemName: "shuffle")
-                                .foregroundColor(.orange)
-                        }
-                        .buttonStyle(.plain)
+                        TextField("Cow name", text: $name).focused($nameFocused)
+                        Button { name = CowNameGenerator.generate(); Haptics.selection() } label: {
+                            Image(systemName: "shuffle").foregroundColor(.orange)
+                        }.buttonStyle(.plain)
                     }
-                } header: {
-                    Text("Name your cow")
-                } footer: {
-                    Text("Auto-generated — tap \(Image(systemName: "shuffle")) to try another, or just type your own.")
-                        .font(.caption)
-                }
-
-                // Summary
+                } header: { Text("Name your cow") }
+                footer: { Text("Auto-generated — tap \(Image(systemName: "shuffle")) for another, or type your own.").font(.caption) }
                 Section {
-                    HStack {
-                        Text("Total duration")
-                        Spacer()
-                        Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration }))
-                            .foregroundColor(.secondary)
-                    }
-                    HStack {
-                        Text("Steps")
-                        Spacer()
-                        Text("\(cleanSteps.count)").foregroundColor(.secondary)
-                    }
+                    HStack { Text("Total duration"); Spacer()
+                        Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration })).foregroundColor(.secondary) }
+                    HStack { Text("Steps"); Spacer(); Text("\(cleanSteps.count)").foregroundColor(.secondary) }
                 } header: { Text("Summary") }
-
-                // Steps preview
-                Section {
-                    ForEach(cleanSteps) { step in StepRow(step: step) }
-                } header: { Text("Steps preview") }
+                Section { ForEach(cleanSteps) { step in StepRow(step: step) } } header: { Text("Steps preview") }
             }
             .navigationTitle("Save Cow")
             .navigationBarItems(
-                leading: Button("Cancel") {
-                    onSave(CarriageRun(name: "", steps: []))
-                },
+                leading: Button("Cancel") { onSave(CarriageRun(name: "", steps: [])) },
                 trailing: Button("Save") {
-                    onSave(CarriageRun(
-                        name: name.trimmingCharacters(in: .whitespaces).isEmpty
-                            ? suggestedName
-                            : name,
-                        steps: cleanSteps
-                    ))
-                }
-                .fontWeight(.semibold)
-                .foregroundColor(.orange)
-                .disabled(cleanSteps.isEmpty)
+                    onSave(CarriageRun(name: name.trimmingCharacters(in: .whitespaces).isEmpty ? suggestedName : name,
+                                      steps: cleanSteps))
+                }.fontWeight(.semibold).foregroundColor(.orange).disabled(cleanSteps.isEmpty)
             )
-            .onAppear {
-                name = suggestedName   // pre-fill with auto name
-                nameFocused = false    // don't force keyboard open — name is already good
-            }
+            .onAppear { name = suggestedName; nameFocused = false }
         }
     }
 }
@@ -352,8 +302,7 @@ struct LocalDirectionIndicator: View {
             Image(systemName: "arrow.left").font(.title)
                 .foregroundColor(direction == "B" ? .blue : .gray.opacity(0.3))
             VStack(spacing: 2) {
-                Text(dirLabel).font(.system(size: 22, weight: .bold))
-                    .animation(.none, value: dirLabel)
+                Text(dirLabel).font(.system(size: 22, weight: .bold)).animation(.none, value: dirLabel)
                 Text("\(Int(Double(speed) / 255 * 100))% speed")
                     .font(.caption).foregroundColor(.secondary).monospacedDigit()
             }
@@ -386,9 +335,7 @@ struct DirectionColumn: View {
     let onBump: () -> Void
     let onHoldPress: () -> Void
     let onHoldRelease: () -> Void
-
     var isBumping: Bool { bumpDirection == direction }
-
     var body: some View {
         VStack(spacing: 12) {
             Button(action: onBump) {
@@ -412,8 +359,7 @@ struct DirectionColumn: View {
                     }
                     .foregroundColor(isBumping ? color : .primary)
                 }
-            }
-            .buttonStyle(.plain)
+            }.buttonStyle(.plain)
 
             VStack(spacing: 4) {
                 Image(systemName: arrowIcon).font(.system(size: 30, weight: .bold))
@@ -441,7 +387,6 @@ class RunRecorder: ObservableObject {
     @Published var isRecording = false
     @Published var elapsedTime: Double = 0
     @Published private(set) var steps: [RunStep] = []
-
     private var timer: Timer?
     private var stepStart: Date?
     private var currentDirection: StepDirection = .stop
@@ -450,23 +395,16 @@ class RunRecorder: ObservableObject {
     func start() {
         steps = []; elapsedTime = 0; isRecording = true
         stepStart = Date(); currentDirection = .stop; currentSpeed = 0
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.elapsedTime += 0.1
-        }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in self?.elapsedTime += 0.1 }
     }
-
     func record(direction: StepDirection, speed: Int) {
         guard isRecording else { return }
-        finaliseCurrentStep()
-        currentDirection = direction; currentSpeed = speed; stepStart = Date()
+        finaliseCurrentStep(); currentDirection = direction; currentSpeed = speed; stepStart = Date()
     }
-
     func stop() {
         guard isRecording else { return }
-        finaliseCurrentStep()
-        timer?.invalidate(); timer = nil; isRecording = false
+        finaliseCurrentStep(); timer?.invalidate(); timer = nil; isRecording = false
     }
-
     private func finaliseCurrentStep() {
         guard let start = stepStart else { return }
         let duration = Date().timeIntervalSince(start)
@@ -476,7 +414,6 @@ class RunRecorder: ObservableObject {
         }
         stepStart = nil
     }
-
     func cleanedSteps() -> [RunStep] {
         var result: [RunStep] = []
         for step in steps {

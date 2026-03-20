@@ -6,19 +6,19 @@ struct AutoView: View {
     @EnvironmentObject var connection: ConnectionManager
     @EnvironmentObject var store: ProgramStore
 
-    @StateObject private var simEngine       = CattleSimEngine()
-    @StateObject private var setEngine       = SetEngine()
-    @StateObject private var countdown       = CountdownEngine()
+    @StateObject private var simEngine  = CattleSimEngine()
+    @StateObject private var setEngine  = SetEngine()
+    @StateObject private var countdown  = CountdownEngine()
 
-    @State private var selectedMode: AutoMode      = .random
+    @State private var selectedMode: AutoMode         = .freeRange
     @State private var selectedProfile: CattleProfile = CattleProfile.defaults[1]
-    @State private var selectedSet: TrainingSet?   = nil
+    @State private var selectedSet: TrainingSet?      = nil
     @State private var editingProfile: CattleProfile? = nil
 
     enum AutoMode: String, CaseIterable {
-        case random = "Random"
-        case set    = "Training Set"
-        var icon: String { self == .random ? "shuffle" : "list.number" }
+        case freeRange = "Free Range"
+        case set       = "Training Set"
+        var icon: String { self == .freeRange ? "shuffle" : "list.number" }
     }
 
     var isActive: Bool { simEngine.isRunning || setEngine.isRunning || countdown.isCountingDown }
@@ -40,7 +40,7 @@ struct AutoView: View {
                         .disabled(isActive)
 
                         switch selectedMode {
-                        case .random:
+                        case .freeRange:
                             CattleSimPanel(
                                 simEngine: simEngine,
                                 selectedProfile: $selectedProfile,
@@ -78,12 +78,12 @@ struct AutoView: View {
                             )
                         }
 
-                        // Live status
+                        // Live cards
                         if simEngine.isRunning {
                             SimLiveCard(simEngine: simEngine).padding(.horizontal)
                         }
                         if setEngine.isRunning {
-                            SetLiveCard(setEngine: setEngine, store: store).padding(.horizontal)
+                            SetLiveCard(setEngine: setEngine).padding(.horizontal)
                         }
                         if case .finished = setEngine.phase {
                             FinishedBanner().padding(.horizontal)
@@ -92,7 +92,7 @@ struct AutoView: View {
                     .padding(.top)
                 }
 
-                // ── 5-second countdown overlay ──
+                // 5-second countdown overlay
                 if countdown.isCountingDown {
                     CountdownOverlay(count: countdown.count) {
                         countdown.cancel()
@@ -115,46 +115,37 @@ struct CountdownOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.72)
-                .ignoresSafeArea()
-
+            Color.black.opacity(0.72).ignoresSafeArea()
             VStack(spacing: 28) {
                 Text("Get Ready")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
-
-                // Big number with pulse ring
                 ZStack {
                     Circle()
                         .stroke(Color.orange.opacity(0.3), lineWidth: 8)
                         .frame(width: 160, height: 160)
-
                     Circle()
                         .trim(from: 0, to: CGFloat(count) / 5.0)
                         .stroke(Color.orange, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                         .frame(width: 160, height: 160)
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 1.0), value: count)
-
                     Text("\(count)")
                         .font(.system(size: 80, weight: .black, design: .rounded))
                         .foregroundColor(.white)
                         .contentTransition(.numericText())
                         .animation(.spring(response: 0.4, dampingFraction: 0.6), value: count)
                 }
-
                 Text("Starting in \(count) second\(count == 1 ? "" : "s")...")
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.7))
-
                 Button {
                     onCancel()
                 } label: {
                     Text("Cancel")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
-                        .padding(.horizontal, 36)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 36).padding(.vertical, 12)
                         .background(Color.white.opacity(0.2))
                         .cornerRadius(22)
                 }
@@ -182,7 +173,12 @@ struct CattleSimPanel: View {
                     HStack(spacing: 12) {
                         ForEach(profiles) { profile in
                             ProfileCard(profile: profile, isSelected: profile.id == selectedProfile.id)
-                                .onTapGesture { if !simEngine.isRunning { selectedProfile = profile } }
+                                .onTapGesture {
+                                    if !simEngine.isRunning {
+                                        selectedProfile = profile
+                                        Haptics.selection()
+                                    }
+                                }
                         }
                     }.padding(.horizontal)
                 }
@@ -190,7 +186,7 @@ struct CattleSimPanel: View {
             ProfileDetailCard(profile: selectedProfile, onEdit: onEditProfile).padding(.horizontal)
             BigActionButton(
                 isRunning: simEngine.isRunning || isCountingDown,
-                startLabel: "Start Sim",
+                startLabel: "Start Free Range",
                 stopLabel: "Stop",
                 onStart: onStart,
                 onStop: onStop
@@ -216,7 +212,7 @@ struct SetRunPanel: View {
                 VStack(spacing: 8) {
                     Image(systemName: "list.bullet.rectangle").font(.largeTitle).foregroundColor(.secondary)
                     Text("No training sets yet").foregroundColor(.secondary)
-                    Text("Create sets in the Program tab").font(.caption).foregroundColor(.secondary)
+                    Text("Create sets in the Sets tab").font(.caption).foregroundColor(.secondary)
                 }.padding()
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -224,15 +220,17 @@ struct SetRunPanel: View {
                     ForEach(sets) { set in
                         SetCard(set: set, isSelected: set.id == selectedSet?.id, store: store)
                             .padding(.horizontal)
-                            .onTapGesture { if !setEngine.isRunning { selectedSet = set } }
+                            .onTapGesture {
+                                if !setEngine.isRunning {
+                                    selectedSet = set
+                                    Haptics.selection()
+                                }
+                            }
                     }
                 }
-
-                // Set run summary if selected
                 if let set = selectedSet {
                     SetSummaryCard(set: set, store: store).padding(.horizontal)
                 }
-
                 BigActionButton(
                     isRunning: setEngine.isRunning || isCountingDown,
                     startLabel: "Run Set",
@@ -252,10 +250,9 @@ struct SetRunPanel: View {
 struct SetSummaryCard: View {
     let set: TrainingSet
     let store: ProgramStore
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Run order").font(.caption).foregroundColor(.secondary)
+            Text("Cow order").font(.caption).foregroundColor(.secondary)
             ForEach(Array(set.entries.enumerated()), id: \.element.id) { i, entry in
                 HStack(spacing: 10) {
                     Text("\(i + 1)")
@@ -265,19 +262,17 @@ struct SetSummaryCard: View {
                         .background(Color.orange)
                         .clipShape(Circle())
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(store.run(for: entry.runID)?.name ?? "Unknown run")
+                        Text(store.run(for: entry.runID)?.name ?? "Unknown")
                             .font(.subheadline.weight(.medium))
                         if i < set.entries.count - 1 {
                             Text("Rest \(Int(entry.restDuration))s before next")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(.caption).foregroundColor(.secondary)
                         }
                     }
                     Spacer()
                     if let run = store.run(for: entry.runID) {
                         Text(String(format: "%.1fs", run.totalDuration))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.caption).foregroundColor(.secondary)
                     }
                 }
             }
@@ -288,13 +283,13 @@ struct SetSummaryCard: View {
     }
 }
 
-// MARK: - Live cards
+// MARK: - Live Cards
 
 struct SimLiveCard: View {
     @ObservedObject var simEngine: CattleSimEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Live — Cattle Sim", systemImage: "dot.radiowaves.left.and.right")
+            Label("Live — Free Range", systemImage: "dot.radiowaves.left.and.right")
                 .font(.headline).foregroundColor(.orange)
             Text(simEngine.currentBehaviour).font(.title3.weight(.semibold))
             Text(String(format: "Running for %.0fs", simEngine.elapsedTime))
@@ -308,7 +303,6 @@ struct SimLiveCard: View {
 
 struct SetLiveCard: View {
     @ObservedObject var setEngine: SetEngine
-    let store: ProgramStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -318,41 +312,36 @@ struct SetLiveCard: View {
                     .font(.headline).foregroundColor(.orange)
                 Spacer()
                 Text("\(setEngine.currentRunIndex + 1) / \(setEngine.totalRuns)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
+                    .font(.caption.weight(.semibold)).foregroundColor(.secondary)
             }
 
-            // Phase display
+            // Phase
             switch setEngine.phase {
             case .running:
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(setEngine.currentRunName)
-                        .font(.title3.weight(.semibold))
-                    ProgressView(value: setEngine.runProgress)
-                        .accentColor(.orange)
-                    Text(String(format: "%.1fs remaining in run", setEngine.runTimeRemaining))
+                    Text(setEngine.currentRunName).font(.title3.weight(.semibold))
+                    ProgressView(value: setEngine.runProgress).accentColor(.orange)
+                    Text(String(format: "%.1fs remaining", setEngine.runTimeRemaining))
                         .font(.caption).foregroundColor(.secondary)
                 }
 
-            case .resting(let nextIndex):
+            case .resting:
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
-                        Image(systemName: "pause.circle.fill")
-                            .foregroundColor(.blue)
-                            .font(.title3)
-                        Text("Resting...")
-                            .font(.title3.weight(.semibold))
+                        Image(systemName: "pause.circle.fill").foregroundColor(.blue).font(.title3)
+                        Text("Resting...").font(.title3.weight(.semibold))
                     }
-                    ProgressView(value: 1.0 - (setEngine.restTimeRemaining / max(1, setEngine.restTimeRemaining + 0.1)))
+                    // Progress bar drains from full to empty over rest period
+                    ProgressView(value: max(0, setEngine.restTimeRemaining),
+                                 total: max(1, setEngine.restTimeRemaining + setEngine.restTimeRemaining * 0.01))
                         .accentColor(.blue)
                     HStack {
-                        Text(String(format: "%.0fs until next run", setEngine.restTimeRemaining))
+                        Text(String(format: "%.0fs until next cow", setEngine.restTimeRemaining))
                             .font(.caption).foregroundColor(.secondary)
                         Spacer()
-                        if let entry = store.run(for: getRunID(at: nextIndex)) {
-                            Text("Next: \(entry.name)")
-                                .font(.caption.weight(.medium))
-                                .foregroundColor(.orange)
+                        if !setEngine.nextRunName.isEmpty {
+                            Text("Next: \(setEngine.nextRunName)")
+                                .font(.caption.weight(.medium)).foregroundColor(.orange)
                         }
                     }
                 }
@@ -361,7 +350,7 @@ struct SetLiveCard: View {
                 EmptyView()
             }
 
-            // Run dots progress indicator
+            // Progress dots
             HStack(spacing: 6) {
                 ForEach(0..<setEngine.totalRuns, id: \.self) { i in
                     Circle()
@@ -380,24 +369,15 @@ struct SetLiveCard: View {
         if index == setEngine.currentRunIndex { return .orange }
         return Color(.systemGray4)
     }
-
-    func getRunID(at index: Int) -> UUID {
-        UUID() // placeholder — actual run name lookup via store handled in resting label
-    }
 }
 
 struct FinishedBanner: View {
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.title2)
+            Image(systemName: "checkmark.circle.fill").foregroundColor(.green).font(.title2)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Set Complete!")
-                    .font(.headline)
-                Text("All runs finished.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Text("Set Complete!").font(.headline)
+                Text("All cows finished.").font(.caption).foregroundColor(.secondary)
             }
             Spacer()
         }
@@ -408,7 +388,7 @@ struct FinishedBanner: View {
     }
 }
 
-// MARK: - Reusable card components
+// MARK: - Shared card components
 
 struct ProfileCard: View {
     let profile: CattleProfile
@@ -475,7 +455,7 @@ struct SetCard: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(set.name).fontWeight(.semibold)
-                Text("\(set.entries.count) runs").font(.caption).foregroundColor(.secondary)
+                Text("\(set.entries.count) cows").font(.caption).foregroundColor(.secondary)
             }
             Spacer()
             if isSelected { Image(systemName: "checkmark.circle.fill").foregroundColor(.orange) }

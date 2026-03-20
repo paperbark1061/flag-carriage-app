@@ -4,56 +4,23 @@ import SwiftUI
 
 enum SetNameGenerator {
     private static let names = [
-        "A Walk in the Park",
-        "Sunday Arvo Stroll",
-        "Easy Does It",
-        "The Warm Up",
-        "Lazy Lap",
-        "Breezy Tuesday",
-        "Just Getting Started",
-        "Gentle Nudge Session",
-        "The Soft Intro",
-        "Moseying Along",
-        "Half Awake",
-        "Coffee First",
-        "The Slow Burn",
-        "Rolling Hills",
-        "Light Jogging",
-        "Taking the Scenic Route",
-        "No Rush Mate",
-        "After Lunch Special",
-        "The Warm Down",
-        "Friday Afternoon Feels",
-        "Get Off the Fence",
-        "Full Send",
-        "Chaos Theory",
-        "The Pressure Cooker",
-        "Hot Under the Collar",
-        "No Mercy",
-        "Buckle Up Buttercup",
-        "Boot Camp",
-        "The Rodeo",
-        "Hang On Tight",
-        "Red Mist Rising",
-        "Absolute Mayhem",
-        "She's Gonna Blow",
-        "The Wrecking Crew",
-        "Advanced Aggression",
-        "Tuesday Mixed Bag",
-        "Something for Everyone",
-        "The Classic",
-        "Old Faithful",
-        "Back to Basics",
-        "Bread and Butter",
-        "The Foundation",
-        "Standard Issue",
-        "Run of the Mill",
-        "The Usual Suspects",
+        "A Walk in the Park", "Sunday Arvo Stroll", "Easy Does It",
+        "The Warm Up", "Lazy Lap", "Breezy Tuesday", "Just Getting Started",
+        "Gentle Nudge Session", "The Soft Intro", "Moseying Along",
+        "Half Awake", "Coffee First", "The Slow Burn",
+        "Rolling Hills", "Light Jogging", "Taking the Scenic Route",
+        "No Rush Mate", "After Lunch Special", "The Warm Down",
+        "Friday Afternoon Feels", "Get Off the Fence", "Full Send",
+        "Chaos Theory", "The Pressure Cooker", "Hot Under the Collar",
+        "No Mercy", "Buckle Up Buttercup", "Boot Camp",
+        "The Rodeo", "Hang On Tight", "Red Mist Rising",
+        "Absolute Mayhem", "She's Gonna Blow", "The Wrecking Crew",
+        "Advanced Aggression", "Tuesday Mixed Bag", "Something for Everyone",
+        "The Classic", "Old Faithful", "Back to Basics",
+        "Bread and Butter", "The Foundation", "Standard Issue",
+        "Run of the Mill", "The Usual Suspects",
     ]
-
-    static func generate() -> String {
-        names.randomElement() ?? "The Classic"
-    }
+    static func generate() -> String { names.randomElement() ?? "The Classic" }
 }
 
 // MARK: - ProgramView
@@ -61,23 +28,23 @@ enum SetNameGenerator {
 struct ProgramView: View {
     @EnvironmentObject var store: ProgramStore
     @EnvironmentObject var connection: ConnectionManager
-    @State private var showNewRun = false
+    @State private var showNewRun  = false
     @State private var editingRun: CarriageRun? = nil
-    @State private var showNewSet = false
+    @State private var showNewSet  = false
     @StateObject private var engine = RunEngine()
     @State private var runningRun: CarriageRun? = nil
 
     var body: some View {
         NavigationView {
             List {
-                // Cows section
+                // Cows
                 Section {
                     if store.runs.isEmpty {
                         Text("No cows yet — tap + to create one")
                             .foregroundColor(.secondary).font(.subheadline)
                     }
                     ForEach(store.runs) { run in
-                        RunRowView(run: run, engine: engine, runningRun: $runningRun)
+                        CowRowView(run: run, engine: engine, runningRun: $runningRun)
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { store.deleteRun(run) }
                                     label: { Label("Delete", systemImage: "trash") }
@@ -95,7 +62,7 @@ struct ProgramView: View {
                     }
                 }
 
-                // Sets section
+                // Sets
                 Section {
                     if store.sets.isEmpty {
                         Text("No sets yet").foregroundColor(.secondary).font(.subheadline)
@@ -135,31 +102,121 @@ struct ProgramView: View {
     }
 }
 
-// MARK: - Run Row
+// MARK: - Cow Row (with detail navigation)
 
-struct RunRowView: View {
+struct CowRowView: View {
     let run: CarriageRun
     @ObservedObject var engine: RunEngine
     @Binding var runningRun: CarriageRun?
     @EnvironmentObject var connection: ConnectionManager
     var isThisRunning: Bool { engine.isRunning && runningRun?.id == run.id }
+
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(run.name).fontWeight(.semibold)
-                Text("\(run.steps.count) steps · \(String(format: "%.1f", run.totalDuration))s")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-            Spacer()
-            Button {
-                if isThisRunning { engine.stop(); runningRun = nil }
-                else { runningRun = run; engine.start(run: run, connection: connection) }
-            } label: {
-                Image(systemName: isThisRunning ? "stop.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(isThisRunning ? .red : .orange)
-            }.buttonStyle(.plain)
-        }.padding(.vertical, 6)
+        NavigationLink(destination: CowDetailView(run: run, engine: engine, runningRun: $runningRun)) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(run.name).fontWeight(.semibold)
+                    Text("\(run.steps.count) steps · \(String(format: "%.1f", run.totalDuration))s")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+                // Play/stop button inline — stopPropagation via buttonStyle
+                Button {
+                    if isThisRunning { engine.stop(); runningRun = nil; Haptics.impact(.rigid) }
+                    else { runningRun = run; engine.start(run: run, connection: connection); Haptics.impact(.medium) }
+                } label: {
+                    Image(systemName: isThisRunning ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(isThisRunning ? .red : .orange)
+                }.buttonStyle(.plain)
+            }.padding(.vertical, 6)
+        }
+    }
+}
+
+// MARK: - Cow Detail View
+
+struct CowDetailView: View {
+    let run: CarriageRun
+    @ObservedObject var engine: RunEngine
+    @Binding var runningRun: CarriageRun?
+    @EnvironmentObject var connection: ConnectionManager
+    @EnvironmentObject var store: ProgramStore
+    @State private var showEdit = false
+
+    var isThisRunning: Bool { engine.isRunning && runningRun?.id == run.id }
+
+    var body: some View {
+        List {
+            // Summary
+            Section {
+                HStack {
+                    Label("Steps", systemImage: "list.number")
+                    Spacer()
+                    Text("\(run.steps.count)").foregroundColor(.secondary)
+                }
+                HStack {
+                    Label("Total duration", systemImage: "clock")
+                    Spacer()
+                    Text(String(format: "%.1fs", run.totalDuration)).foregroundColor(.secondary)
+                }
+            } header: { Text("Summary") }
+
+            // Steps
+            Section {
+                ForEach(Array(run.steps.enumerated()), id: \.element.id) { i, step in
+                    HStack(spacing: 12) {
+                        Text("\(i + 1)")
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(.white)
+                            .frame(width: 22, height: 22)
+                            .background(Color.orange)
+                            .clipShape(Circle())
+                        Image(systemName: step.direction.icon)
+                            .foregroundColor(step.direction == .forward ? .green : step.direction == .backward ? .blue : .orange)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(step.direction.label).fontWeight(.medium)
+                            Text("\(String(format: "%.1f", step.duration))s @ \(Int(Double(step.speed)/255*100))%")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        // Step duration bar
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.orange.opacity(0.4))
+                            .frame(width: CGFloat(step.duration / run.totalDuration * 60), height: 6)
+                    }
+                }
+            } header: { Text("Steps") }
+
+            // Play controls
+            Section {
+                BigActionButton(
+                    isRunning: isThisRunning,
+                    startLabel: "Run this Cow",
+                    stopLabel: "Stop",
+                    onStart: {
+                        runningRun = run
+                        engine.start(run: run, connection: connection)
+                        Haptics.impact(.medium)
+                    },
+                    onStop: {
+                        engine.stop()
+                        runningRun = nil
+                        Haptics.impact(.rigid)
+                    }
+                )
+
+                if isThisRunning {
+                    RunProgressView(engine: engine)
+                }
+            } header: { Text("Playback") }
+        }
+        .navigationTitle(run.name)
+        .navigationBarItems(trailing:
+            Button("Edit") { showEdit = true }.foregroundColor(.orange)
+        )
+        .sheet(isPresented: $showEdit) { RunEditorView(run: run) }
     }
 }
 
@@ -315,28 +372,18 @@ struct SetEditorView: View {
     @State private var entries: [SetEntry] = []
     @State private var showRunPicker = false
     @State private var restDuration: Double = 30
-
     var body: some View {
         NavigationView {
             Form {
-                // Name with auto-generate and shuffle
                 Section {
                     HStack {
                         TextField("Set name", text: $name)
-                        Button {
-                            name = SetNameGenerator.generate()
-                        } label: {
-                            Image(systemName: "shuffle")
-                                .foregroundColor(.orange)
-                        }
-                        .buttonStyle(.plain)
+                        Button { name = SetNameGenerator.generate(); Haptics.selection() } label: {
+                            Image(systemName: "shuffle").foregroundColor(.orange)
+                        }.buttonStyle(.plain)
                     }
-                } header: {
-                    Text("Name your set")
-                } footer: {
-                    Text("Auto-generated — tap \(Image(systemName: "shuffle")) for another, or type your own.")
-                        .font(.caption)
-                }
+                } header: { Text("Name your set") }
+                footer: { Text("Auto-generated — tap \(Image(systemName: "shuffle")) for another, or type your own.").font(.caption) }
 
                 Section {
                     ForEach(entries) { entry in
@@ -368,21 +415,14 @@ struct SetEditorView: View {
                 RunPickerView { run in entries.append(SetEntry(runID: run.id, restDuration: restDuration)) }
             }
             .onAppear {
-                if let s = set {
-                    name = s.name
-                    entries = s.entries
-                } else {
-                    name = SetNameGenerator.generate()  // auto-name new sets
-                }
+                if let s = set { name = s.name; entries = s.entries }
+                else { name = SetNameGenerator.generate() }
             }
         }
     }
-
     func save() {
         var s = set ?? TrainingSet(name: name, entries: [])
-        s.name = name.trimmingCharacters(in: .whitespaces).isEmpty
-            ? SetNameGenerator.generate()
-            : name
+        s.name = name.trimmingCharacters(in: .whitespaces).isEmpty ? SetNameGenerator.generate() : name
         s.entries = entries
         store.saveSet(s); dismiss()
     }
@@ -398,7 +438,7 @@ struct RunPickerView: View {
         NavigationView {
             List(store.runs) { run in
                 Button {
-                    onSelect(run); dismiss()
+                    onSelect(run); dismiss(); Haptics.selection()
                 } label: {
                     VStack(alignment: .leading) {
                         Text(run.name).foregroundColor(.primary)
