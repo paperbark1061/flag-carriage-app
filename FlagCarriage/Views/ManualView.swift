@@ -1,5 +1,30 @@
 import SwiftUI
 
+// MARK: - Cow Name Generator
+
+enum CowNameGenerator {
+    private static let adjectives = [
+        "Dusty", "Rowdy", "Ornery", "Spooky", "Jumpy", "Cranky", "Lazy",
+        "Sassy", "Feisty", "Sneaky", "Wobbly", "Grumpy", "Cheeky", "Bolty",
+        "Skittish", "Scrappy", "Dozy", "Frisky", "Stompy", "Grouchy",
+        "Wooly", "Muddy", "Dizzy", "Shifty", "Twitchy", "Zippy", "Dopey",
+        "Breezy", "Loco", "Nervy"
+    ]
+    private static let names = [
+        "Bessie", "Mabel", "Clover", "Daisy", "Brisket", "Ribeye", "Chuck",
+        "T-Bone", "Angus", "Hereford", "Blossom", "Buttercup", "Dolly",
+        "Gertie", "Nelly", "Patchy", "Rosie", "Winnie", "Elsie", "Agnes",
+        "Bertha", "Lulubelle", "Marigold", "Petunia", "Honeydew", "Clarabelle",
+        "Gwendolyn", "Penelope", "Brunhilde", "Mathilda"
+    ]
+
+    static func generate() -> String {
+        let adj  = adjectives.randomElement() ?? "Rowdy"
+        let name = names.randomElement()      ?? "Bessie"
+        return "\(adj) \(name)"
+    }
+}
+
 // MARK: - ManualView
 
 struct ManualView: View {
@@ -15,16 +40,15 @@ struct ManualView: View {
     @State private var bumpDirection: StepDirection? = nil
     @State private var bumpDisplayTimer: Timer? = nil
 
-    // ── Local display state ───────────────────────────────────────
-    // Driven by what the app just sent, not by ESP echo.
-    // This means the indicator reacts instantly on button press.
-    @State private var localDirection: String = "S"   // "F", "B", "S"
+    // Local display state — instant response, no ESP echo needed
+    @State private var localDirection: String = "S"
     @State private var localSpeed: Int        = 0
 
     // Recording
-    @StateObject private var recorder = RunRecorder()
+    @StateObject private var recorder  = RunRecorder()
     @State private var showSaveSheet   = false
     @State private var savedBanner     = false
+    @State private var autoName        = ""   // generated when recording stops
 
     var isMoving: Bool { isHoldingLeft || isHoldingRight || bumpDirection != nil }
 
@@ -37,7 +61,6 @@ struct ManualView: View {
 
                 Spacer()
 
-                // Indicator now uses local state — instant response
                 LocalDirectionIndicator(direction: localDirection, speed: localSpeed)
                     .padding(.bottom, 20)
 
@@ -57,27 +80,22 @@ struct ManualView: View {
                         onHoldPress: {
                             clearBumpState()
                             let spd = Int(speed)
-                            connection.setSpeed(spd)
-                            connection.backward()
+                            connection.setSpeed(spd); connection.backward()
                             recorder.record(direction: .backward, speed: spd)
-                            localDirection = "B"
-                            localSpeed     = spd
+                            localDirection = "B"; localSpeed = spd
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
-                            localDirection = "S"
-                            localSpeed     = 0
+                            localDirection = "S"; localSpeed = 0
                         }
                     )
 
                     // STOP
                     Button { stopMotor() } label: {
                         VStack(spacing: 5) {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 28, weight: .bold))
-                            Text("STOP")
-                                .font(.system(size: 12, weight: .bold))
+                            Image(systemName: "stop.fill").font(.system(size: 28, weight: .bold))
+                            Text("STOP").font(.system(size: 12, weight: .bold))
                         }
                         .foregroundColor(.white)
                         .frame(width: 70, height: 70)
@@ -99,17 +117,14 @@ struct ManualView: View {
                         onHoldPress: {
                             clearBumpState()
                             let spd = Int(speed)
-                            connection.setSpeed(spd)
-                            connection.forward()
+                            connection.setSpeed(spd); connection.forward()
                             recorder.record(direction: .forward, speed: spd)
-                            localDirection = "F"
-                            localSpeed     = spd
+                            localDirection = "F"; localSpeed = spd
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
-                            localDirection = "S"
-                            localSpeed     = 0
+                            localDirection = "S"; localSpeed = 0
                         }
                     )
                 }
@@ -126,40 +141,38 @@ struct ManualView: View {
                     }.padding(.horizontal)
 
                     Slider(value: $speed, in: 50...255, step: 5)
-                        .accentColor(.orange)
-                        .padding(.horizontal)
+                        .accentColor(.orange).padding(.horizontal)
                         .onChange(of: speed) { val in
-                            if isMoving {
-                                connection.setSpeed(Int(val))
-                                localSpeed = Int(val)
-                            }
+                            if isMoving { connection.setSpeed(Int(val)); localSpeed = Int(val) }
                         }
 
                     HStack(spacing: 12) {
                         ForEach([("Creep", 80), ("Trot", 150), ("Run", 230)], id: \.0) { label, val in
                             Button(label) {
                                 speed = Double(val)
-                                if isMoving {
-                                    connection.setSpeed(val)
-                                    localSpeed = val
-                                }
+                                if isMoving { connection.setSpeed(val); localSpeed = val }
                             }.buttonStyle(PresetButtonStyle())
                         }
                     }
 
                     Divider().padding(.horizontal)
 
+                    // ── Record Cow controls ──────────────────────────
                     HStack(spacing: 16) {
                         if !recorder.isRecording {
-                            Button { recorder.start() } label: {
-                                Label("Record Run", systemImage: "record.circle")
+                            Button {
+                                recorder.start()
+                            } label: {
+                                Label("Record Cow", systemImage: "record.circle")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 20).padding(.vertical, 10)
                                     .background(Color.red).cornerRadius(22)
                             }
                         } else {
-                            Button { recorder.stop() } label: {
+                            Button {
+                                recorder.stop()
+                            } label: {
                                 Label("Discard", systemImage: "stop.circle")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.white)
@@ -168,9 +181,10 @@ struct ManualView: View {
                             }
                             Button {
                                 recorder.stop()
+                                autoName = CowNameGenerator.generate()
                                 showSaveSheet = true
                             } label: {
-                                Label("Save Run", systemImage: "square.and.arrow.down")
+                                Label("Save Cow", systemImage: "square.and.arrow.down")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 20).padding(.vertical, 10)
@@ -182,7 +196,7 @@ struct ManualView: View {
                     .padding(.bottom, 4)
 
                     if savedBanner {
-                        Text("✓ Run saved to Programs")
+                        Text("✓ Cow saved to Programs")
                             .font(.caption).foregroundColor(.green)
                             .transition(.opacity)
                     }
@@ -193,13 +207,16 @@ struct ManualView: View {
             .navigationTitle("Manual Control")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showSaveSheet) {
-                SaveRunSheet(recorder: recorder) { run in
-                    store.saveRun(run)
-                    showSaveSheet = false
-                    withAnimation { savedBanner = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        withAnimation { savedBanner = false }
+                SaveCowSheet(recorder: recorder, suggestedName: autoName) { run in
+                    // Discard returns empty name — skip save
+                    if !run.name.isEmpty {
+                        store.saveRun(run)
+                        withAnimation { savedBanner = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            withAnimation { savedBanner = false }
+                        }
                     }
+                    showSaveSheet = false
                 }
             }
         }
@@ -211,89 +228,142 @@ struct ManualView: View {
         clearBumpState()
         connection.stop()
         recorder.record(direction: .stop, speed: 0)
-        localDirection = "S"
-        localSpeed     = 0
+        localDirection = "S"; localSpeed = 0
     }
 
     // MARK: - Bump logic
 
     func fireBump(direction: StepDirection) {
-        if bumpDirection == direction {
-            stopMotor()
-            return
-        }
+        if bumpDirection == direction { stopMotor(); return }
         clearBumpState()
-
-        bumpDirection  = direction
-        bumpProgress   = 0
-        let spd        = Int(speed)
-        connection.setSpeed(spd)
-        connection.send(direction.rawValue)
+        bumpDirection = direction; bumpProgress = 0
+        let spd = Int(speed)
+        connection.setSpeed(spd); connection.send(direction.rawValue)
         recorder.record(direction: direction, speed: spd)
-        localDirection = direction == .forward ? "F" : "B"
-        localSpeed     = spd
+        localDirection = direction == .forward ? "F" : "B"; localSpeed = spd
 
-        let bumpDuration = 3.0
-        let interval     = 0.05
-        var elapsed      = 0.0
-
+        let bumpDuration = 3.0; let interval = 0.05; var elapsed = 0.0
         bumpDisplayTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [self] t in
-            elapsed      += interval
-            bumpProgress  = min(elapsed / bumpDuration, 1.0)
+            elapsed += interval
+            bumpProgress = min(elapsed / bumpDuration, 1.0)
             if elapsed >= bumpDuration {
-                t.invalidate()
-                bumpDisplayTimer = nil
-                bumpDirection    = nil
-                bumpProgress     = 0
-                connection.stop()
-                recorder.record(direction: .stop, speed: 0)
-                localDirection = "S"
-                localSpeed     = 0
+                t.invalidate(); bumpDisplayTimer = nil
+                bumpDirection = nil; bumpProgress = 0
+                connection.stop(); recorder.record(direction: .stop, speed: 0)
+                localDirection = "S"; localSpeed = 0
             }
         }
     }
 
     func clearBumpState() {
-        bumpDisplayTimer?.invalidate()
-        bumpDisplayTimer = nil
-        bumpDirection    = nil
-        bumpProgress     = 0
+        bumpDisplayTimer?.invalidate(); bumpDisplayTimer = nil
+        bumpDirection = nil; bumpProgress = 0
+    }
+}
+
+// MARK: - Save Cow Sheet
+
+struct SaveCowSheet: View {
+    @ObservedObject var recorder: RunRecorder
+    let suggestedName: String
+    var onSave: (CarriageRun) -> Void
+
+    @State private var name = ""
+    @FocusState private var nameFocused: Bool
+
+    var cleanSteps: [RunStep] { recorder.cleanedSteps() }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                // Name section — pre-filled with fun auto name, fully editable
+                Section {
+                    HStack {
+                        TextField("Cow name", text: $name)
+                            .focused($nameFocused)
+                        // Shuffle button to generate a new random name
+                        Button {
+                            name = CowNameGenerator.generate()
+                        } label: {
+                            Image(systemName: "shuffle")
+                                .foregroundColor(.orange)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Name your cow")
+                } footer: {
+                    Text("Auto-generated — tap \(Image(systemName: "shuffle")) to try another, or just type your own.")
+                        .font(.caption)
+                }
+
+                // Summary
+                Section {
+                    HStack {
+                        Text("Total duration")
+                        Spacer()
+                        Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration }))
+                            .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("Steps")
+                        Spacer()
+                        Text("\(cleanSteps.count)").foregroundColor(.secondary)
+                    }
+                } header: { Text("Summary") }
+
+                // Steps preview
+                Section {
+                    ForEach(cleanSteps) { step in StepRow(step: step) }
+                } header: { Text("Steps preview") }
+            }
+            .navigationTitle("Save Cow")
+            .navigationBarItems(
+                leading: Button("Cancel") {
+                    onSave(CarriageRun(name: "", steps: []))
+                },
+                trailing: Button("Save") {
+                    onSave(CarriageRun(
+                        name: name.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? suggestedName
+                            : name,
+                        steps: cleanSteps
+                    ))
+                }
+                .fontWeight(.semibold)
+                .foregroundColor(.orange)
+                .disabled(cleanSteps.isEmpty)
+            )
+            .onAppear {
+                name = suggestedName   // pre-fill with auto name
+                nameFocused = false    // don't force keyboard open — name is already good
+            }
+        }
     }
 }
 
 // MARK: - Local Direction Indicator
-// Reads from local app state so it reacts instantly — no ESP echo needed.
 
 struct LocalDirectionIndicator: View {
-    let direction: String   // "F", "B", "S"
+    let direction: String
     let speed: Int
-
     var body: some View {
         HStack(spacing: 40) {
-            Image(systemName: "arrow.left")
-                .font(.title)
+            Image(systemName: "arrow.left").font(.title)
                 .foregroundColor(direction == "B" ? .blue : .gray.opacity(0.3))
-
             VStack(spacing: 2) {
-                Text(dirLabel)
-                    .font(.system(size: 22, weight: .bold))
+                Text(dirLabel).font(.system(size: 22, weight: .bold))
                     .animation(.none, value: dirLabel)
                 Text("\(Int(Double(speed) / 255 * 100))% speed")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
+                    .font(.caption).foregroundColor(.secondary).monospacedDigit()
             }
-
-            Image(systemName: "arrow.right")
-                .font(.title)
+            Image(systemName: "arrow.right").font(.title)
                 .foregroundColor(direction == "F" ? .green : .gray.opacity(0.3))
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
-        .cornerRadius(14)
-        .padding(.horizontal)
+        .cornerRadius(14).padding(.horizontal)
     }
-
     var dirLabel: String {
         switch direction {
         case "F": return "RIGHT"
@@ -321,14 +391,11 @@ struct DirectionColumn: View {
 
     var body: some View {
         VStack(spacing: 12) {
-
-            // BUMP
             Button(action: onBump) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(isBumping ? color.opacity(0.15) : Color(.secondarySystemGroupedBackground))
                         .frame(width: 110, height: 70)
-
                     if isBumping {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .trim(from: 0, to: bumpProgress)
@@ -336,15 +403,10 @@ struct DirectionColumn: View {
                             .frame(width: 110, height: 70)
                             .animation(.linear(duration: 0.05), value: bumpProgress)
                     }
-
                     VStack(spacing: 3) {
-                        Image(systemName: arrowIcon)
-                            .font(.system(size: 18, weight: .bold))
-                        Text("BUMP")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(isBumping
-                             ? String(format: "%.1fs", 3.0 * (1 - bumpProgress))
-                             : "3s")
+                        Image(systemName: arrowIcon).font(.system(size: 18, weight: .bold))
+                        Text("BUMP").font(.system(size: 11, weight: .bold))
+                        Text(isBumping ? String(format: "%.1fs", 3.0 * (1 - bumpProgress)) : "3s")
                             .font(.system(size: 10))
                             .foregroundColor(isBumping ? color : .secondary)
                     }
@@ -353,12 +415,9 @@ struct DirectionColumn: View {
             }
             .buttonStyle(.plain)
 
-            // HOLD
             VStack(spacing: 4) {
-                Image(systemName: arrowIcon)
-                    .font(.system(size: 30, weight: .bold))
-                Text("HOLD")
-                    .font(.system(size: 11, weight: .bold))
+                Image(systemName: arrowIcon).font(.system(size: 30, weight: .bold))
+                Text("HOLD").font(.system(size: 11, weight: .bold))
             }
             .foregroundColor(.white)
             .frame(width: 110, height: 90)
@@ -369,13 +428,8 @@ struct DirectionColumn: View {
             .animation(.easeInOut(duration: 0.1), value: isHolding)
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !isHolding { isHolding = true; onHoldPress() }
-                    }
-                    .onEnded { _ in
-                        isHolding = false
-                        onHoldRelease()
-                    }
+                    .onChanged { _ in if !isHolding { isHolding = true; onHoldPress() } }
+                    .onEnded   { _ in isHolding = false; onHoldRelease() }
             )
         }
     }
@@ -394,12 +448,8 @@ class RunRecorder: ObservableObject {
     private var currentSpeed: Int = 0
 
     func start() {
-        steps = []
-        elapsedTime = 0
-        isRecording = true
-        stepStart = Date()
-        currentDirection = .stop
-        currentSpeed = 0
+        steps = []; elapsedTime = 0; isRecording = true
+        stepStart = Date(); currentDirection = .stop; currentSpeed = 0
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.elapsedTime += 0.1
         }
@@ -408,28 +458,21 @@ class RunRecorder: ObservableObject {
     func record(direction: StepDirection, speed: Int) {
         guard isRecording else { return }
         finaliseCurrentStep()
-        currentDirection = direction
-        currentSpeed = speed
-        stepStart = Date()
+        currentDirection = direction; currentSpeed = speed; stepStart = Date()
     }
 
     func stop() {
         guard isRecording else { return }
         finaliseCurrentStep()
-        timer?.invalidate()
-        timer = nil
-        isRecording = false
+        timer?.invalidate(); timer = nil; isRecording = false
     }
 
     private func finaliseCurrentStep() {
         guard let start = stepStart else { return }
         let duration = Date().timeIntervalSince(start)
         if duration >= 0.1 {
-            steps.append(RunStep(
-                direction: currentDirection,
-                speed: currentSpeed,
-                duration: (duration * 10).rounded() / 10
-            ))
+            steps.append(RunStep(direction: currentDirection, speed: currentSpeed,
+                                 duration: (duration * 10).rounded() / 10))
         }
         stepStart = nil
     }
@@ -441,9 +484,7 @@ class RunRecorder: ObservableObject {
                 var merged = last
                 merged.duration = (last.duration + step.duration * 10).rounded() / 10
                 result[result.count - 1] = merged
-            } else {
-                result.append(step)
-            }
+            } else { result.append(step) }
         }
         if result.last?.direction == .stop { result.removeLast() }
         return result
@@ -473,52 +514,12 @@ struct RecordingBar: View {
     }
 }
 
-// MARK: - Save sheet
-
-struct SaveRunSheet: View {
-    @ObservedObject var recorder: RunRecorder
-    var onSave: (CarriageRun) -> Void
-    @State private var name = ""
-    @FocusState private var nameFocused: Bool
-    var cleanSteps: [RunStep] { recorder.cleanedSteps() }
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section { TextField("e.g. Hot cow pattern 1", text: $name).focused($nameFocused) }
-                    header: { Text("Run name") }
-                Section {
-                    HStack { Text("Total duration"); Spacer()
-                        Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration }))
-                            .foregroundColor(.secondary) }
-                    HStack { Text("Steps"); Spacer()
-                        Text("\(cleanSteps.count)").foregroundColor(.secondary) }
-                } header: { Text("Summary") }
-                Section { ForEach(cleanSteps) { step in StepRow(step: step) } }
-                    header: { Text("Steps preview") }
-            }
-            .navigationTitle("Save Recorded Run")
-            .navigationBarItems(
-                leading: Button("Cancel") { onSave(CarriageRun(name: "", steps: [])) },
-                trailing: Button("Save") {
-                    onSave(CarriageRun(name: name.isEmpty ? "Recorded Run" : name, steps: cleanSteps))
-                }
-                .fontWeight(.semibold).foregroundColor(.orange).disabled(cleanSteps.isEmpty)
-            )
-            .onAppear { nameFocused = true }
-        }
-    }
-}
-
 // MARK: - Shared UI
 
 struct DriveButton: View {
-    let icon: String
-    let label: String
-    let color: Color
+    let icon: String; let label: String; let color: Color
     @Binding var isHolding: Bool
-    let onPress: () -> Void
-    let onRelease: () -> Void
+    let onPress: () -> Void; let onRelease: () -> Void
     var body: some View {
         VStack(spacing: 6) {
             Image(systemName: icon).font(.system(size: 36, weight: .bold))
