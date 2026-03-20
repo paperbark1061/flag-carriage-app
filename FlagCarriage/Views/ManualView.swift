@@ -10,9 +10,8 @@ struct ManualView: View {
     @State private var isHoldingLeft  = false
     @State private var isHoldingRight = false
 
-    // Bump timer — tracks the 3-second timed move
-    @State private var bumpTimer: Timer? = nil
-    @State private var bumpProgress: Double = 0      // 0–1 for the progress arc
+    // Bump state
+    @State private var bumpProgress: Double   = 0
     @State private var bumpDirection: StepDirection? = nil
     @State private var bumpDisplayTimer: Timer? = nil
 
@@ -34,9 +33,7 @@ struct ManualView: View {
 
                 DirectionIndicator(status: connection.lastStatus).padding(.bottom, 20)
 
-                // ── Control layout ──────────────────────────────────────
                 // Left column | Stop | Right column
-                // Each column: [Bump] stacked above [Hold]
                 HStack(alignment: .center, spacing: 16) {
 
                     // LEFT
@@ -50,6 +47,8 @@ struct ManualView: View {
                         bumpProgress: bumpProgress,
                         onBump: { fireBump(direction: .backward) },
                         onHoldPress: {
+                            // Cancel any active bump silently before holding
+                            clearBumpState()
                             connection.setSpeed(Int(speed))
                             connection.backward()
                             recorder.record(direction: .backward, speed: Int(speed))
@@ -60,11 +59,10 @@ struct ManualView: View {
                         }
                     )
 
-                    // STOP
+                    // STOP — only stops the motor and clears bump UI.
+                    // Does NOT touch recorder or connection state beyond sending S.
                     Button {
-                        cancelBump()
-                        connection.stop()
-                        recorder.record(direction: .stop, speed: 0)
+                        stopMotor()
                     } label: {
                         VStack(spacing: 5) {
                             Image(systemName: "stop.fill")
@@ -90,6 +88,7 @@ struct ManualView: View {
                         bumpProgress: bumpProgress,
                         onBump: { fireBump(direction: .forward) },
                         onHoldPress: {
+                            clearBumpState()
                             connection.setSpeed(Int(speed))
                             connection.forward()
                             recorder.record(direction: .forward, speed: Int(speed))
@@ -103,7 +102,7 @@ struct ManualView: View {
 
                 Spacer()
 
-                // ── Speed + record panel ────────────────────────────────
+                // Speed + record panel
                 VStack(spacing: 10) {
                     HStack {
                         Text("Speed").font(.headline)
@@ -130,7 +129,6 @@ struct ManualView: View {
 
                     Divider().padding(.horizontal)
 
-                    // Record controls
                     HStack(spacing: 16) {
                         if !recorder.isRecording {
                             Button {
@@ -191,18 +189,27 @@ struct ManualView: View {
         }
     }
 
+    // MARK: - Motor control
+
+    /// Send stop to the motor and clear bump UI.
+    /// Does NOT affect isHoldingLeft/Right — those are cleared
+    /// automatically by the gesture .onEnded handler.
+    func stopMotor() {
+        clearBumpState()
+        connection.stop()
+        recorder.record(direction: .stop, speed: 0)
+    }
+
     // MARK: - Bump logic
 
-    /// Fire a timed 3-second bump in a direction.
-    /// If a bump is already running in the same direction, cancel it.
-    /// If in a different direction, cancel that first then start the new one.
     func fireBump(direction: StepDirection) {
+        // Tapping the same direction while bumping = cancel
         if bumpDirection == direction {
-            // Tapping same side cancels
-            cancelBump()
+            stopMotor()
             return
         }
-        cancelBump()
+        // Switch direction or start fresh — just clear UI state, motor command follows
+        clearBumpState()
 
         bumpDirection = direction
         bumpProgress  = 0
@@ -214,40 +221,32 @@ struct ManualView: View {
         let interval     = 0.05
         var elapsed      = 0.0
 
-        bumpDisplayTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { t in
+        bumpDisplayTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [self] t in
             elapsed      += interval
             bumpProgress  = min(elapsed / bumpDuration, 1.0)
             if elapsed >= bumpDuration {
                 t.invalidate()
                 bumpDisplayTimer = nil
-                finishBump()
+                // Bump finished naturally — stop motor, clear state
+                bumpDirection = nil
+                bumpProgress  = 0
+                connection.stop()
+                recorder.record(direction: .stop, speed: 0)
             }
         }
     }
 
-    func finishBump() {
-        bumpDirection = nil
-        bumpProgress  = 0
-        connection.stop()
-        recorder.record(direction: .stop, speed: 0)
-    }
-
-    func cancelBump() {
+    /// Clear bump timer and UI state only — does NOT send any motor command.
+    /// Call this before issuing a new motor command so UI is clean.
+    func clearBumpState() {
         bumpDisplayTimer?.invalidate()
         bumpDisplayTimer = nil
-        bumpTimer?.invalidate()
-        bumpTimer = nil
-        if bumpDirection != nil {
-            bumpDirection = nil
-            bumpProgress  = 0
-            connection.stop()
-            recorder.record(direction: .stop, speed: 0)
-        }
+        bumpDirection    = nil
+        bumpProgress     = 0
     }
 }
 
 // MARK: - Direction Column
-// Stacks a Bump button above a Hold button for one direction.
 
 struct DirectionColumn: View {
     let direction: StepDirection
@@ -266,15 +265,13 @@ struct DirectionColumn: View {
     var body: some View {
         VStack(spacing: 12) {
 
-            // ── BUMP button ──────────────────────────────────────────
+            // BUMP
             Button(action: onBump) {
                 ZStack {
-                    // Background
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(isBumping ? color.opacity(0.15) : Color(.secondarySystemGroupedBackground))
                         .frame(width: 110, height: 70)
 
-                    // Progress arc border when bumping
                     if isBumping {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .trim(from: 0, to: bumpProgress)
@@ -288,25 +285,18 @@ struct DirectionColumn: View {
                             .font(.system(size: 18, weight: .bold))
                         Text("BUMP")
                             .font(.system(size: 11, weight: .bold))
-                        Text("3s")
+                        Text(isBumping
+                             ? String(format: "%.1fs", 3.0 * (1 - bumpProgress))
+                             : "3s")
                             .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(isBumping ? color : .secondary)
                     }
                     .foregroundColor(isBumping ? color : .primary)
                 }
             }
             .buttonStyle(.plain)
-            .overlay(
-                // Remaining time label when bumping
-                isBumping ? AnyView(
-                    Text(String(format: "%.1fs", 3.0 * (1 - bumpProgress)))
-                        .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                        .foregroundColor(color)
-                        .offset(y: 38)
-                ) : AnyView(EmptyView())
-            )
 
-            // ── HOLD button ──────────────────────────────────────────
+            // HOLD
             VStack(spacing: 4) {
                 Image(systemName: arrowIcon)
                     .font(.system(size: 30, weight: .bold))
