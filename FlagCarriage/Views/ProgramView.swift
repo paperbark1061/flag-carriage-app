@@ -96,7 +96,7 @@ struct ProgramView: View {
                     } header: { Text("Running Now") }
                 }
             }
-            .navigationTitle("Sets")
+            .navigationTitle("Saved")
             .sheet(isPresented: $showNewRun)  { RunEditorView(run: nil) }
             .sheet(item: $editingRun)         { run in RunEditorView(run: run) }
             .sheet(isPresented: $showNewSet)  { SetEditorView(set: nil) }
@@ -196,16 +196,14 @@ struct SetDetailView: View {
     @EnvironmentObject var store: ProgramStore
     @EnvironmentObject var connection: ConnectionManager
 
-    // We work on a local mutable copy so edits/deletes feel instant
     @State private var trainingSet: TrainingSet
-    @State private var showEdit    = false
+    @State private var showEdit      = false
     @State private var navigateToSim = false
 
     init(trainingSet: TrainingSet) {
         _trainingSet = State(initialValue: trainingSet)
     }
 
-    // Keep local copy in sync when store changes
     private func syncFromStore() {
         if let updated = store.sets.first(where: { $0.id == trainingSet.id }) {
             trainingSet = updated
@@ -218,25 +216,14 @@ struct SetDetailView: View {
 
     var body: some View {
         List {
-            // Summary
             Section {
-                HStack {
-                    Label("Cows", systemImage: "list.number")
-                    Spacer()
-                    Text("\(trainingSet.entries.count)").foregroundColor(.secondary)
-                }
-                HStack {
-                    Label("Total duration", systemImage: "clock")
-                    Spacer()
-                    Text(String(format: "%.1fs", totalDuration)).foregroundColor(.secondary)
-                }
+                HStack { Label("Cows", systemImage: "list.number"); Spacer(); Text("\(trainingSet.entries.count)").foregroundColor(.secondary) }
+                HStack { Label("Total duration", systemImage: "clock"); Spacer(); Text(String(format: "%.1fs", totalDuration)).foregroundColor(.secondary) }
             } header: { Text("Summary") }
 
-            // Cow list — swipe to delete
             Section {
                 if trainingSet.entries.isEmpty {
-                    Text("No cows in this set yet")
-                        .foregroundColor(.secondary).font(.subheadline)
+                    Text("No cows in this set yet").foregroundColor(.secondary).font(.subheadline)
                 }
                 ForEach(Array(trainingSet.entries.enumerated()), id: \.element.id) { i, entry in
                     HStack(spacing: 12) {
@@ -244,37 +231,28 @@ struct SetDetailView: View {
                             .font(.caption.weight(.bold)).foregroundColor(.white)
                             .frame(width: 22, height: 22).background(Color.orange).clipShape(Circle())
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(store.run(for: entry.runID)?.name ?? "Unknown cow")
-                                .fontWeight(.medium)
+                            Text(store.run(for: entry.runID)?.name ?? "Unknown cow").fontWeight(.medium)
                             HStack(spacing: 8) {
                                 if let run = store.run(for: entry.runID) {
-                                    Text(String(format: "%.1fs", run.totalDuration))
-                                        .font(.caption).foregroundColor(.secondary)
+                                    Text(String(format: "%.1fs", run.totalDuration)).font(.caption).foregroundColor(.secondary)
                                 }
                                 if i < trainingSet.entries.count - 1 {
-                                    Text("· Rest \(Int(entry.restDuration))s")
-                                        .font(.caption).foregroundColor(.secondary)
+                                    Text("· Rest \(Int(entry.restDuration))s").font(.caption).foregroundColor(.secondary)
                                 }
                             }
                         }
                     }
                     .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            removeEntry(at: i)
-                        } label: { Label("Remove", systemImage: "trash") }
+                        Button(role: .destructive) { removeEntry(at: i) }
+                            label: { Label("Remove", systemImage: "trash") }
                     }
                 }
             } header: { Text("Cows in order") }
 
-            // Actions
             Section {
-                // Run — navigates to Cattle Sim tab pre-loaded with this set
-                NavigationLink(destination: AutoViewPreloaded(set: trainingSet), isActive: $navigateToSim) {
-                    EmptyView()
-                }
+                NavigationLink(destination: AutoViewPreloaded(set: trainingSet), isActive: $navigateToSim) { EmptyView() }
                 Button {
-                    Haptics.impact(.medium)
-                    navigateToSim = true
+                    Haptics.impact(.medium); navigateToSim = true
                 } label: {
                     HStack {
                         Spacer()
@@ -282,17 +260,13 @@ struct SetDetailView: View {
                         Text("Run this Set").font(.title3.weight(.bold)).foregroundColor(.white)
                         Spacer()
                     }
-                    .padding(.vertical, 14)
-                    .background(Color.orange)
-                    .cornerRadius(14)
+                    .padding(.vertical, 14).background(Color.orange).cornerRadius(14)
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
 
-                // Edit
                 Button {
-                    showEdit = true
-                    Haptics.selection()
+                    showEdit = true; Haptics.selection()
                 } label: {
                     HStack {
                         Spacer()
@@ -307,17 +281,13 @@ struct SetDetailView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-
             } header: { Text("Actions") }
         }
         .navigationTitle(trainingSet.name)
-        .sheet(isPresented: $showEdit, onDismiss: syncFromStore) {
-            SetEditorView(set: trainingSet)
-        }
+        .sheet(isPresented: $showEdit, onDismiss: syncFromStore) { SetEditorView(set: trainingSet) }
         .onAppear { syncFromStore() }
     }
 
-    // Remove a cow from the set and persist
     func removeEntry(at index: Int) {
         trainingSet.entries.remove(at: index)
         store.saveSet(trainingSet)
@@ -326,62 +296,32 @@ struct SetDetailView: View {
 }
 
 // MARK: - AutoView Preloaded
-// Standalone version of the Cattle Sim / Training Set screen
-// pre-selected with a specific set, for navigation from SetDetailView.
 
 struct AutoViewPreloaded: View {
     @EnvironmentObject var store: ProgramStore
     @EnvironmentObject var connection: ConnectionManager
-
     let set: TrainingSet
-
-    @StateObject private var setEngine  = SetEngine()
-    @StateObject private var countdown  = CountdownEngine()
-
-    var isActive: Bool { setEngine.isRunning || countdown.isCountingDown }
+    @StateObject private var setEngine = SetEngine()
+    @StateObject private var countdown = CountdownEngine()
 
     var body: some View {
         ZStack {
             ScrollView {
                 VStack(spacing: 20) {
                     if !connection.isConnected { NotConnectedBanner() }
-
-                    // Set summary
                     SetSummaryCard(set: set, store: store).padding(.horizontal)
-
-                    // Run/Stop
                     BigActionButton(
                         isRunning: setEngine.isRunning || countdown.isCountingDown,
-                        startLabel: "Run Set",
-                        stopLabel: "Stop",
-                        onStart: {
-                            countdown.start {
-                                setEngine.start(set: set, store: store, connection: connection)
-                            }
-                        },
-                        onStop: {
-                            countdown.cancel()
-                            setEngine.stop()
-                        }
+                        startLabel: "Run Set", stopLabel: "Stop",
+                        onStart: { countdown.start { setEngine.start(set: set, store: store, connection: connection) } },
+                        onStop:  { countdown.cancel(); setEngine.stop() }
                     ).padding(.horizontal)
-
-                    // Live card
-                    if setEngine.isRunning {
-                        SetLiveCard(setEngine: setEngine).padding(.horizontal)
-                    }
-                    if case .finished = setEngine.phase {
-                        FinishedBanner().padding(.horizontal)
-                    }
-                }
-                .padding(.top)
+                    if setEngine.isRunning { SetLiveCard(setEngine: setEngine).padding(.horizontal) }
+                    if case .finished = setEngine.phase { FinishedBanner().padding(.horizontal) }
+                }.padding(.top)
             }
-
-            // Countdown overlay
             if countdown.isCountingDown {
-                CountdownOverlay(count: countdown.count) {
-                    countdown.cancel()
-                    setEngine.stop()
-                }
+                CountdownOverlay(count: countdown.count) { countdown.cancel(); setEngine.stop() }
             }
         }
         .navigationTitle(set.name)
