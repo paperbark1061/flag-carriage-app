@@ -13,7 +13,16 @@ struct ContentView: View {
                 .tabItem { Label("Sets", systemImage: "list.bullet.rectangle") }
                 .tag(1)
             AutoView()
-                .tabItem { Label("Cattle Sim", systemImage: "hare.fill") }
+                .tabItem {
+                    // SF Symbols has no cow — use the closest cattle-themed icon
+                    // with a custom label that makes the intent clear
+                    Label {
+                        Text("Cattle Sim")
+                    } icon: {
+                        Image(systemName: "aqi.medium")
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                }
                 .tag(2)
             ConnectView()
                 .tabItem { Label("Connect", systemImage: "wifi") }
