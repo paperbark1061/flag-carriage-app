@@ -2,7 +2,6 @@ import Foundation
 import UIKit   // for haptic feedback
 
 // MARK: - Haptics helper
-// Centralised so every engine can trigger feedback without importing UIKit individually.
 
 struct Haptics {
     static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
@@ -30,17 +29,17 @@ class CountdownEngine: ObservableObject {
         count = 5
         isCountingDown = true
         timer?.invalidate()
-        Haptics.impact(.light)   // first tick
+        Haptics.impact(.light)
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.count -= 1
             if self.count <= 0 {
                 self.timer?.invalidate()
                 self.isCountingDown = false
-                Haptics.notification(.success)   // buzz on launch
+                Haptics.notification(.success)
                 self.onComplete?()
             } else {
-                Haptics.impact(.light)           // tick each second
+                Haptics.impact(.light)
             }
         }
     }
@@ -95,7 +94,6 @@ class RunEngine: ObservableObject {
         stepElapsed   = 0
         timeRemaining = step.duration
         progress      = 0
-        // Haptic pulse when each step starts
         if step.direction != .stop { Haptics.impact(.medium) }
         connection?.setSpeed(step.speed)
         connection?.send(step.direction.rawValue)
@@ -141,7 +139,6 @@ class SetEngine: ObservableObject {
     @Published var currentRunIndex   = 0
     @Published var totalRuns         = 0
     @Published var restTimeRemaining: Double = 0
-    // Expose next run name for the rest card
     @Published var nextRunName: String = ""
 
     private var set: TrainingSet?
@@ -176,8 +173,6 @@ class SetEngine: ObservableObject {
         Haptics.impact(.rigid)
     }
 
-    // MARK: Private
-
     private func executeRun(at index: Int) {
         guard let set = set, let store = store, let connection = connection else { return }
         guard index < set.entries.count else { finish(); return }
@@ -197,7 +192,6 @@ class SetEngine: ObservableObject {
             guard let self = self else { return }
             let restDur = set.entries[index].restDuration
             if index + 1 < set.entries.count && restDur > 0 {
-                // Pre-load next run name for the rest card
                 if let nextRun = store.run(for: set.entries[index + 1].runID) {
                     self.nextRunName = nextRun.name
                 }
@@ -255,8 +249,14 @@ class SetEngine: ObservableObject {
 class CattleSimEngine: ObservableObject {
     @Published var isRunning         = false
     @Published var currentBehaviour  = "Idle"
+    @Published var currentProfileName = ""   // shown in live card during Wild Side
     @Published var elapsedTime: Double = 0
     @Published var targetDuration: Double = 0
+
+    // Wild Side mode — cycles randomly through all available profiles
+    private var isWildSide = false
+    private var allProfiles: [CattleProfile] = []
+    private var wildSideTimer: Timer?        // swaps profile every 15-45s
 
     private var timer: Timer?
     private var phaseTimer: Timer?
@@ -264,25 +264,71 @@ class CattleSimEngine: ObservableObject {
     private var profile: CattleProfile?
     private var lastDirection: StepDirection = .forward
 
+    // Normal start — specific profile chosen
     func start(profile: CattleProfile, connection: ConnectionManager) {
-        self.profile    = profile
-        self.connection = connection
-        isRunning       = true
-        elapsedTime     = 0
+        self.isWildSide  = false
+        self.allProfiles = []
+        self.profile     = profile
+        self.connection  = connection
+        currentProfileName = profile.name
+        isRunning        = true
+        elapsedTime      = 0
         scheduleNextPhase()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.elapsedTime += 0.1
-        }
+        startElapsedTimer()
+    }
+
+    // Wild Side start — rotates through all profiles at random intervals
+    func startWildSide(profiles: [CattleProfile], connection: ConnectionManager) {
+        guard !profiles.isEmpty else { return }
+        self.isWildSide  = true
+        self.allProfiles = profiles
+        self.connection  = connection
+        self.profile     = profiles.randomElement()
+        currentProfileName = self.profile?.name ?? ""
+        isRunning        = true
+        elapsedTime      = 0
+        scheduleNextPhase()
+        startElapsedTimer()
+        scheduleWildSideSwap()
     }
 
     func stop() {
         timer?.invalidate()
         phaseTimer?.invalidate()
-        timer = nil; phaseTimer = nil
+        wildSideTimer?.invalidate()
+        timer = nil; phaseTimer = nil; wildSideTimer = nil
         isRunning        = false
+        isWildSide       = false
         connection?.stop()
         currentBehaviour = "Stopped"
+        currentProfileName = ""
         Haptics.impact(.rigid)
+    }
+
+    // MARK: Private
+
+    private func startElapsedTimer() {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.elapsedTime += 0.1
+        }
+    }
+
+    // Wild Side: swap to a random (different) profile every 15-45 seconds
+    private func scheduleWildSideSwap() {
+        guard isWildSide, !allProfiles.isEmpty else { return }
+        let interval = Double.random(in: 15...45)
+        wildSideTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            guard let self = self, self.isRunning, self.isWildSide else { return }
+            let others = self.allProfiles.filter { $0.id != self.profile?.id }
+            if let next = (others.isEmpty ? self.allProfiles : others).randomElement() {
+                self.profile = next
+                DispatchQueue.main.async {
+                    self.currentProfileName = next.name
+                }
+                Haptics.impact(.medium)
+            }
+            self.scheduleWildSideSwap()   // schedule the next swap
+        }
     }
 
     private func scheduleNextPhase() {

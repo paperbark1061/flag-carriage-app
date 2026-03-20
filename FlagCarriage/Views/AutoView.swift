@@ -11,9 +11,10 @@ struct AutoView: View {
     @StateObject private var countdown  = CountdownEngine()
 
     @State private var selectedMode: AutoMode         = .freeRange
-    @State private var selectedProfile: CattleProfile = CattleProfile.defaults[1]
-    @State private var selectedSet: TrainingSet?      = nil
-    @State private var editingProfile: CattleProfile? = nil
+    @State private var selectedProfile: CattleProfile? = nil    // nil = nothing explicitly chosen
+    @State private var selectedSet: TrainingSet?       = nil
+    @State private var editingProfile: CattleProfile?  = nil
+    @State private var showNoProfileSheet              = false  // action sheet when no profile
 
     enum AutoMode: String, CaseIterable {
         case freeRange = "Free Range"
@@ -47,15 +48,20 @@ struct AutoView: View {
                                 profiles: store.cattleProfiles,
                                 isCountingDown: countdown.isCountingDown,
                                 onStart: {
-                                    countdown.start {
-                                        simEngine.start(profile: selectedProfile, connection: connection)
+                                    if selectedProfile == nil {
+                                        // No profile chosen — ask what to do
+                                        showNoProfileSheet = true
+                                    } else {
+                                        startFreeRange(wildSide: false)
                                     }
                                 },
                                 onStop: {
                                     countdown.cancel()
                                     simEngine.stop()
                                 },
-                                onEditProfile: { editingProfile = selectedProfile }
+                                onEditProfile: {
+                                    if let p = selectedProfile { editingProfile = p }
+                                }
                             )
 
                         case .set:
@@ -103,6 +109,36 @@ struct AutoView: View {
             }
             .navigationTitle("Cattle Sim")
             .sheet(item: $editingProfile) { profile in ProfileEditorView(profile: profile) }
+            // No-profile action sheet
+            .confirmationDialog(
+                "No Cattle Profile Selected",
+                isPresented: $showNoProfileSheet,
+                titleVisibility: .visible
+            ) {
+                Button("\u{1F92A} Live on the Wild Side") {
+                    startFreeRange(wildSide: true)
+                }
+                Button("Choose a Profile") {
+                    // Dismiss — user taps a profile card themselves
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Pick a cattle profile, or go wild and let the profiles rotate randomly throughout the session.")
+            }
+        }
+    }
+
+    // MARK: - Start helpers
+
+    private func startFreeRange(wildSide: Bool) {
+        if wildSide {
+            countdown.start {
+                simEngine.startWildSide(profiles: store.cattleProfiles, connection: connection)
+            }
+        } else if let profile = selectedProfile {
+            countdown.start {
+                simEngine.start(profile: profile, connection: connection)
+            }
         }
     }
 }
@@ -158,7 +194,7 @@ struct CountdownOverlay: View {
 
 struct CattleSimPanel: View {
     @ObservedObject var simEngine: CattleSimEngine
-    @Binding var selectedProfile: CattleProfile
+    @Binding var selectedProfile: CattleProfile?
     let profiles: [CattleProfile]
     let isCountingDown: Bool
     let onStart: () -> Void
@@ -168,25 +204,64 @@ struct CattleSimPanel: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Cattle Profile").font(.headline).padding(.horizontal)
+                HStack {
+                    Text("Cattle Profile").font(.headline)
+                    Spacer()
+                    if selectedProfile != nil {
+                        Button("Clear") {
+                            selectedProfile = nil
+                            Haptics.selection()
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal)
+
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(profiles) { profile in
-                            ProfileCard(profile: profile, isSelected: profile.id == selectedProfile.id)
-                                .onTapGesture {
-                                    if !simEngine.isRunning {
-                                        selectedProfile = profile
-                                        Haptics.selection()
-                                    }
+                            ProfileCard(
+                                profile: profile,
+                                isSelected: profile.id == selectedProfile?.id
+                            )
+                            .onTapGesture {
+                                if !simEngine.isRunning {
+                                    selectedProfile = profile
+                                    Haptics.selection()
                                 }
+                            }
                         }
                     }.padding(.horizontal)
                 }
             }
-            ProfileDetailCard(profile: selectedProfile, onEdit: onEditProfile).padding(.horizontal)
+
+            // Show detail card only when a profile is selected
+            if let profile = selectedProfile {
+                ProfileDetailCard(profile: profile, onEdit: onEditProfile).padding(.horizontal)
+            } else {
+                // Placeholder nudge
+                HStack(spacing: 10) {
+                    Text("\u{1F914}")
+                        .font(.title2)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("No profile selected")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Tap a profile above, or start for a surprise.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding()
+                .background(Color(.secondarySystemGroupedBackground))
+                .cornerRadius(14)
+                .padding(.horizontal)
+            }
+
             BigActionButton(
                 isRunning: simEngine.isRunning || isCountingDown,
-                startLabel: "Start Free Range",
+                startLabel: selectedProfile == nil ? "Start Free Range \u{1F92F}" : "Start Free Range",
                 stopLabel: "Stop",
                 onStart: onStart,
                 onStop: onStop
@@ -212,7 +287,7 @@ struct SetRunPanel: View {
                 VStack(spacing: 8) {
                     Image(systemName: "list.bullet.rectangle").font(.largeTitle).foregroundColor(.secondary)
                     Text("No training sets yet").foregroundColor(.secondary)
-                    Text("Create sets in the Sets tab").font(.caption).foregroundColor(.secondary)
+                    Text("Create sets in the Saved tab").font(.caption).foregroundColor(.secondary)
                 }.padding()
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -289,8 +364,20 @@ struct SimLiveCard: View {
     @ObservedObject var simEngine: CattleSimEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Live — Free Range", systemImage: "dot.radiowaves.left.and.right")
-                .font(.headline).foregroundColor(.orange)
+            HStack {
+                Label("Live \u{2014} Free Range", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.headline).foregroundColor(.orange)
+                Spacer()
+                // Show Wild Side badge when active
+                if !simEngine.currentProfileName.isEmpty {
+                    Text(simEngine.currentProfileName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Color.orange.opacity(0.12))
+                        .cornerRadius(8)
+                }
+            }
             Text(simEngine.currentBehaviour).font(.title3.weight(.semibold))
             Text(String(format: "Running for %.0fs", simEngine.elapsedTime))
                 .font(.caption).foregroundColor(.secondary)
@@ -306,16 +393,14 @@ struct SetLiveCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack {
-                Label("Live — Training Set", systemImage: "dot.radiowaves.left.and.right")
+                Label("Live \u{2014} Training Set", systemImage: "dot.radiowaves.left.and.right")
                     .font(.headline).foregroundColor(.orange)
                 Spacer()
                 Text("\(setEngine.currentRunIndex + 1) / \(setEngine.totalRuns)")
                     .font(.caption.weight(.semibold)).foregroundColor(.secondary)
             }
 
-            // Phase
             switch setEngine.phase {
             case .running:
                 VStack(alignment: .leading, spacing: 6) {
@@ -331,7 +416,6 @@ struct SetLiveCard: View {
                         Image(systemName: "pause.circle.fill").foregroundColor(.blue).font(.title3)
                         Text("Resting...").font(.title3.weight(.semibold))
                     }
-                    // Progress bar drains from full to empty over rest period
                     ProgressView(value: max(0, setEngine.restTimeRemaining),
                                  total: max(1, setEngine.restTimeRemaining + setEngine.restTimeRemaining * 0.01))
                         .accentColor(.blue)
@@ -350,7 +434,6 @@ struct SetLiveCard: View {
                 EmptyView()
             }
 
-            // Progress dots
             HStack(spacing: 6) {
                 ForEach(0..<setEngine.totalRuns, id: \.self) { i in
                     Circle()
@@ -394,7 +477,7 @@ struct ProfileCard: View {
     let profile: CattleProfile
     let isSelected: Bool
     var aggressionEmoji: String {
-        switch profile.aggression { case .lazy: return "🐄"; case .medium: return "🐂"; case .hot: return "🐃" }
+        switch profile.aggression { case .lazy: return "\u{1F404}"; case .medium: return "\u{1F402}"; case .hot: return "\u{1F403}" }
     }
     var aggressionColor: Color {
         switch profile.aggression { case .lazy: return .green; case .medium: return .orange; case .hot: return .red }
@@ -424,8 +507,8 @@ struct ProfileDetailCard: View {
             }
             Divider()
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ProfileStat(label: "Speed range",  value: "\(Int(Double(profile.minSpeed)/255*100))–\(Int(Double(profile.maxSpeed)/255*100))%")
-                ProfileStat(label: "Run duration", value: "\(String(format: "%.1f", profile.minRunDuration))–\(String(format: "%.1f", profile.maxRunDuration))s")
+                ProfileStat(label: "Speed range",  value: "\(Int(Double(profile.minSpeed)/255*100))\u{2013}\(Int(Double(profile.maxSpeed)/255*100))%")
+                ProfileStat(label: "Run duration", value: "\(String(format: "%.1f", profile.minRunDuration))\u{2013}\(String(format: "%.1f", profile.maxRunDuration))s")
                 ProfileStat(label: "Pause chance", value: "\(Int(profile.pauseChance*100))%")
                 ProfileStat(label: "Change freq",  value: "\(String(format: "%.1f", profile.changeFrequency))s")
             }
