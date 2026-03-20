@@ -47,7 +47,6 @@ struct ManualView: View {
                         bumpProgress: bumpProgress,
                         onBump: { fireBump(direction: .backward) },
                         onHoldPress: {
-                            // Cancel any active bump silently before holding
                             clearBumpState()
                             connection.setSpeed(Int(speed))
                             connection.backward()
@@ -59,8 +58,7 @@ struct ManualView: View {
                         }
                     )
 
-                    // STOP — only stops the motor and clears bump UI.
-                    // Does NOT touch recorder or connection state beyond sending S.
+                    // STOP
                     Button {
                         stopMotor()
                     } label: {
@@ -119,7 +117,7 @@ struct ManualView: View {
                         }
 
                     HStack(spacing: 12) {
-                        ForEach([("Creep", 80), ("Trot", 150), ("Bolt", 230)], id: \.0) { label, val in
+                        ForEach([("Creep", 80), ("Trot", 150), ("Run", 230)], id: \.0) { label, val in
                             Button(label) {
                                 speed = Double(val)
                                 if isMoving { connection.setSpeed(val) }
@@ -191,9 +189,6 @@ struct ManualView: View {
 
     // MARK: - Motor control
 
-    /// Send stop to the motor and clear bump UI.
-    /// Does NOT affect isHoldingLeft/Right — those are cleared
-    /// automatically by the gesture .onEnded handler.
     func stopMotor() {
         clearBumpState()
         connection.stop()
@@ -203,12 +198,10 @@ struct ManualView: View {
     // MARK: - Bump logic
 
     func fireBump(direction: StepDirection) {
-        // Tapping the same direction while bumping = cancel
         if bumpDirection == direction {
             stopMotor()
             return
         }
-        // Switch direction or start fresh — just clear UI state, motor command follows
         clearBumpState()
 
         bumpDirection = direction
@@ -227,7 +220,6 @@ struct ManualView: View {
             if elapsed >= bumpDuration {
                 t.invalidate()
                 bumpDisplayTimer = nil
-                // Bump finished naturally — stop motor, clear state
                 bumpDirection = nil
                 bumpProgress  = 0
                 connection.stop()
@@ -236,8 +228,6 @@ struct ManualView: View {
         }
     }
 
-    /// Clear bump timer and UI state only — does NOT send any motor command.
-    /// Call this before issuing a new motor command so UI is clean.
     func clearBumpState() {
         bumpDisplayTimer?.invalidate()
         bumpDisplayTimer = nil
