@@ -38,16 +38,14 @@ struct ContentView: View {
                     }
                 }
                 .tag(2)
-            ConnectView()
-                .tabItem { Label("Connect", systemImage: "wifi") }
-                .tag(3)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(4)
+                .tag(3)
         }
         .accentColor(.orange)
         .overlay(alignment: .top) {
             if !connection.isConnected {
+                // Banner now navigates to Settings tab (tag 3) where Connect lives
                 ConnectionBanner(onTap: { selectedTab = 3 })
             }
         }
@@ -58,12 +56,34 @@ struct ContentView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var store: ProgramStore
+    @EnvironmentObject var connection: ConnectionManager
     @State private var showEraseConfirm = false
     @State private var erasedBanner     = false
 
     var body: some View {
         NavigationView {
             List {
+                // Connection — navigates into full ConnectView
+                Section {
+                    NavigationLink(destination: ConnectView()) {
+                        HStack {
+                            Image(systemName: connection.isConnected ? "wifi" : "wifi.slash")
+                                .foregroundColor(connection.isConnected ? .green : .orange)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Carriage Connection")
+                                    .fontWeight(.semibold)
+                                Text(connection.isConnected
+                                     ? "Connected — \(connection.lastStatus.ip.isEmpty ? connection.ipAddress : connection.lastStatus.ip)"
+                                     : "Not connected")
+                                    .font(.caption)
+                                    .foregroundColor(connection.isConnected ? .green : .secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                } header: { Text("Connection") }
+
                 // Data
                 Section {
                     Button(role: .destructive) {
