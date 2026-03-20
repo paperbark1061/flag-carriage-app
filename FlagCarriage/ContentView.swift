@@ -24,14 +24,14 @@ struct ContentView: View {
                 .tabItem { Label("Manual", systemImage: "hand.point.up.fill") }
                 .tag(0)
             ProgramView()
-                .tabItem { Label("Sets", systemImage: "list.bullet.rectangle") }
+                .tabItem { Label("Saved", systemImage: "list.bullet.rectangle") }
                 .tag(1)
             AutoView()
                 .tabItem {
                     Label {
                         Text("Cattle Sim")
                     } icon: {
-                        Image(uiImage: UIImage.emoji("🐄"))
+                        Image(uiImage: UIImage.emoji("\u{1F404}"))
                             .renderingMode(.original)
                     }
                 }
