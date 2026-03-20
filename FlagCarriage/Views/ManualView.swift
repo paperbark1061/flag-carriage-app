@@ -11,14 +11,20 @@ struct ManualView: View {
     @State private var isHoldingRight = false
 
     // Bump state
-    @State private var bumpProgress: Double   = 0
+    @State private var bumpProgress: Double    = 0
     @State private var bumpDirection: StepDirection? = nil
     @State private var bumpDisplayTimer: Timer? = nil
 
+    // ── Local display state ───────────────────────────────────────
+    // Driven by what the app just sent, not by ESP echo.
+    // This means the indicator reacts instantly on button press.
+    @State private var localDirection: String = "S"   // "F", "B", "S"
+    @State private var localSpeed: Int        = 0
+
     // Recording
     @StateObject private var recorder = RunRecorder()
-    @State private var showSaveSheet  = false
-    @State private var savedBanner    = false
+    @State private var showSaveSheet   = false
+    @State private var savedBanner     = false
 
     var isMoving: Bool { isHoldingLeft || isHoldingRight || bumpDirection != nil }
 
@@ -31,7 +37,9 @@ struct ManualView: View {
 
                 Spacer()
 
-                DirectionIndicator(status: connection.lastStatus).padding(.bottom, 20)
+                // Indicator now uses local state — instant response
+                LocalDirectionIndicator(direction: localDirection, speed: localSpeed)
+                    .padding(.bottom, 20)
 
                 // Left column | Stop | Right column
                 HStack(alignment: .center, spacing: 16) {
@@ -48,20 +56,23 @@ struct ManualView: View {
                         onBump: { fireBump(direction: .backward) },
                         onHoldPress: {
                             clearBumpState()
-                            connection.setSpeed(Int(speed))
+                            let spd = Int(speed)
+                            connection.setSpeed(spd)
                             connection.backward()
-                            recorder.record(direction: .backward, speed: Int(speed))
+                            recorder.record(direction: .backward, speed: spd)
+                            localDirection = "B"
+                            localSpeed     = spd
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
+                            localDirection = "S"
+                            localSpeed     = 0
                         }
                     )
 
                     // STOP
-                    Button {
-                        stopMotor()
-                    } label: {
+                    Button { stopMotor() } label: {
                         VStack(spacing: 5) {
                             Image(systemName: "stop.fill")
                                 .font(.system(size: 28, weight: .bold))
@@ -87,13 +98,18 @@ struct ManualView: View {
                         onBump: { fireBump(direction: .forward) },
                         onHoldPress: {
                             clearBumpState()
-                            connection.setSpeed(Int(speed))
+                            let spd = Int(speed)
+                            connection.setSpeed(spd)
                             connection.forward()
-                            recorder.record(direction: .forward, speed: Int(speed))
+                            recorder.record(direction: .forward, speed: spd)
+                            localDirection = "F"
+                            localSpeed     = spd
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
+                            localDirection = "S"
+                            localSpeed     = 0
                         }
                     )
                 }
@@ -113,14 +129,20 @@ struct ManualView: View {
                         .accentColor(.orange)
                         .padding(.horizontal)
                         .onChange(of: speed) { val in
-                            if isMoving { connection.setSpeed(Int(val)) }
+                            if isMoving {
+                                connection.setSpeed(Int(val))
+                                localSpeed = Int(val)
+                            }
                         }
 
                     HStack(spacing: 12) {
                         ForEach([("Creep", 80), ("Trot", 150), ("Run", 230)], id: \.0) { label, val in
                             Button(label) {
                                 speed = Double(val)
-                                if isMoving { connection.setSpeed(val) }
+                                if isMoving {
+                                    connection.setSpeed(val)
+                                    localSpeed = val
+                                }
                             }.buttonStyle(PresetButtonStyle())
                         }
                     }
@@ -129,9 +151,7 @@ struct ManualView: View {
 
                     HStack(spacing: 16) {
                         if !recorder.isRecording {
-                            Button {
-                                recorder.start()
-                            } label: {
+                            Button { recorder.start() } label: {
                                 Label("Record Run", systemImage: "record.circle")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.white)
@@ -139,9 +159,7 @@ struct ManualView: View {
                                     .background(Color.red).cornerRadius(22)
                             }
                         } else {
-                            Button {
-                                recorder.stop()
-                            } label: {
+                            Button { recorder.stop() } label: {
                                 Label("Discard", systemImage: "stop.circle")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.white)
@@ -193,6 +211,8 @@ struct ManualView: View {
         clearBumpState()
         connection.stop()
         recorder.record(direction: .stop, speed: 0)
+        localDirection = "S"
+        localSpeed     = 0
     }
 
     // MARK: - Bump logic
@@ -204,11 +224,14 @@ struct ManualView: View {
         }
         clearBumpState()
 
-        bumpDirection = direction
-        bumpProgress  = 0
-        connection.setSpeed(Int(speed))
+        bumpDirection  = direction
+        bumpProgress   = 0
+        let spd        = Int(speed)
+        connection.setSpeed(spd)
         connection.send(direction.rawValue)
-        recorder.record(direction: direction, speed: Int(speed))
+        recorder.record(direction: direction, speed: spd)
+        localDirection = direction == .forward ? "F" : "B"
+        localSpeed     = spd
 
         let bumpDuration = 3.0
         let interval     = 0.05
@@ -220,10 +243,12 @@ struct ManualView: View {
             if elapsed >= bumpDuration {
                 t.invalidate()
                 bumpDisplayTimer = nil
-                bumpDirection = nil
-                bumpProgress  = 0
+                bumpDirection    = nil
+                bumpProgress     = 0
                 connection.stop()
                 recorder.record(direction: .stop, speed: 0)
+                localDirection = "S"
+                localSpeed     = 0
             }
         }
     }
@@ -233,6 +258,48 @@ struct ManualView: View {
         bumpDisplayTimer = nil
         bumpDirection    = nil
         bumpProgress     = 0
+    }
+}
+
+// MARK: - Local Direction Indicator
+// Reads from local app state so it reacts instantly — no ESP echo needed.
+
+struct LocalDirectionIndicator: View {
+    let direction: String   // "F", "B", "S"
+    let speed: Int
+
+    var body: some View {
+        HStack(spacing: 40) {
+            Image(systemName: "arrow.left")
+                .font(.title)
+                .foregroundColor(direction == "B" ? .blue : .gray.opacity(0.3))
+
+            VStack(spacing: 2) {
+                Text(dirLabel)
+                    .font(.system(size: 22, weight: .bold))
+                    .animation(.none, value: dirLabel)
+                Text("\(Int(Double(speed) / 255 * 100))% speed")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+            }
+
+            Image(systemName: "arrow.right")
+                .font(.title)
+                .foregroundColor(direction == "F" ? .green : .gray.opacity(0.3))
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(14)
+        .padding(.horizontal)
+    }
+
+    var dirLabel: String {
+        switch direction {
+        case "F": return "RIGHT"
+        case "B": return "LEFT"
+        default:  return "STOPPED"
+        }
     }
 }
 
@@ -303,10 +370,7 @@ struct DirectionColumn: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
-                        if !isHolding {
-                            isHolding = true
-                            onHoldPress()
-                        }
+                        if !isHolding { isHolding = true; onHoldPress() }
                     }
                     .onEnded { _ in
                         isHolding = false
@@ -425,8 +489,10 @@ struct SaveRunSheet: View {
                     header: { Text("Run name") }
                 Section {
                     HStack { Text("Total duration"); Spacer()
-                        Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration })).foregroundColor(.secondary) }
-                    HStack { Text("Steps"); Spacer(); Text("\(cleanSteps.count)").foregroundColor(.secondary) }
+                        Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration }))
+                            .foregroundColor(.secondary) }
+                    HStack { Text("Steps"); Spacer()
+                        Text("\(cleanSteps.count)").foregroundColor(.secondary) }
                 } header: { Text("Summary") }
                 Section { ForEach(cleanSteps) { step in StepRow(step: step) } }
                     header: { Text("Steps preview") }
@@ -470,32 +536,6 @@ struct DriveButton: View {
                 .onChanged { _ in if !isHolding { isHolding = true; onPress() } }
                 .onEnded   { _ in isHolding = false; onRelease() }
         )
-    }
-}
-
-struct DirectionIndicator: View {
-    let status: CarriageStatus
-    var body: some View {
-        HStack(spacing: 40) {
-            Image(systemName: "arrow.left").font(.title)
-                .foregroundColor(status.direction == "B" ? .blue : .gray.opacity(0.3))
-            VStack(spacing: 2) {
-                Text(dirLabel).font(.system(size: 22, weight: .bold))
-                Text("\(Int(Double(status.speed)/255*100))% speed").font(.caption).foregroundColor(.secondary)
-            }
-            Image(systemName: "arrow.right").font(.title)
-                .foregroundColor(status.direction == "F" ? .green : .gray.opacity(0.3))
-        }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground))
-        .cornerRadius(14).padding(.horizontal)
-    }
-    var dirLabel: String {
-        switch status.direction {
-        case "F": return "RIGHT"
-        case "B": return "LEFT"
-        default:  return "STOPPED"
-        }
     }
 }
 
