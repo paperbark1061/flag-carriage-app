@@ -492,8 +492,8 @@ struct DirectionIndicator: View {
     }
     var dirLabel: String {
         switch status.direction {
-        case "F": return "FORWARD"
-        case "B": return "BACKWARD"
+        case "F": return "RIGHT"
+        case "B": return "LEFT"
         default:  return "STOPPED"
         }
     }
