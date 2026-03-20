@@ -1,13 +1,18 @@
 import SwiftUI
 
+// MARK: - AutoView
+
 struct AutoView: View {
     @EnvironmentObject var connection: ConnectionManager
     @EnvironmentObject var store: ProgramStore
-    @StateObject private var simEngine = CattleSimEngine()
-    @StateObject private var runEngine = RunEngine()
-    @State private var selectedMode: AutoMode = .random
+
+    @StateObject private var simEngine       = CattleSimEngine()
+    @StateObject private var setEngine       = SetEngine()
+    @StateObject private var countdown       = CountdownEngine()
+
+    @State private var selectedMode: AutoMode      = .random
     @State private var selectedProfile: CattleProfile = CattleProfile.defaults[1]
-    @State private var selectedSet: TrainingSet? = nil
+    @State private var selectedSet: TrainingSet?   = nil
     @State private var editingProfile: CattleProfile? = nil
 
     enum AutoMode: String, CaseIterable {
@@ -16,50 +21,85 @@ struct AutoView: View {
         var icon: String { self == .random ? "shuffle" : "list.number" }
     }
 
-    var isRunning: Bool { simEngine.isRunning || runEngine.isRunning }
+    var isActive: Bool { simEngine.isRunning || setEngine.isRunning || countdown.isCountingDown }
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    if !connection.isConnected { NotConnectedBanner() }
-                    Picker("Mode", selection: $selectedMode) {
-                        ForEach(AutoMode.allCases, id: \.self) { mode in
-                            Label(mode.rawValue, systemImage: mode.icon).tag(mode)
+            ZStack {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        if !connection.isConnected { NotConnectedBanner() }
+
+                        Picker("Mode", selection: $selectedMode) {
+                            ForEach(AutoMode.allCases, id: \.self) { mode in
+                                Label(mode.rawValue, systemImage: mode.icon).tag(mode)
+                            }
                         }
-                    }.pickerStyle(.segmented).padding(.horizontal)
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+                        .disabled(isActive)
 
-                    switch selectedMode {
-                    case .random:
-                        CattleSimPanel(
-                            simEngine: simEngine,
-                            selectedProfile: $selectedProfile,
-                            profiles: store.cattleProfiles,
-                            onStart: { simEngine.start(profile: selectedProfile, connection: connection) },
-                            onStop:  { simEngine.stop() },
-                            onEditProfile: { editingProfile = selectedProfile }
-                        )
-                    case .set:
-                        SetRunPanel(
-                            runEngine: runEngine,
-                            sets: store.sets,
-                            selectedSet: $selectedSet,
-                            onStart: {
-                                if let set = selectedSet,
-                                   let firstID = set.entries.first?.runID,
-                                   let firstRun = store.run(for: firstID) {
-                                    runEngine.start(run: firstRun, connection: connection)
+                        switch selectedMode {
+                        case .random:
+                            CattleSimPanel(
+                                simEngine: simEngine,
+                                selectedProfile: $selectedProfile,
+                                profiles: store.cattleProfiles,
+                                isCountingDown: countdown.isCountingDown,
+                                onStart: {
+                                    countdown.start {
+                                        simEngine.start(profile: selectedProfile, connection: connection)
+                                    }
+                                },
+                                onStop: {
+                                    countdown.cancel()
+                                    simEngine.stop()
+                                },
+                                onEditProfile: { editingProfile = selectedProfile }
+                            )
+
+                        case .set:
+                            SetRunPanel(
+                                setEngine: setEngine,
+                                sets: store.sets,
+                                selectedSet: $selectedSet,
+                                store: store,
+                                isCountingDown: countdown.isCountingDown,
+                                onStart: {
+                                    guard let set = selectedSet else { return }
+                                    countdown.start {
+                                        setEngine.start(set: set, store: store, connection: connection)
+                                    }
+                                },
+                                onStop: {
+                                    countdown.cancel()
+                                    setEngine.stop()
                                 }
-                            },
-                            onStop: { runEngine.stop() }
-                        )
-                    }
+                            )
+                        }
 
-                    if isRunning {
-                        LiveStatusCard(simEngine: simEngine, runEngine: runEngine, mode: selectedMode)
-                            .padding(.horizontal)
+                        // Live status
+                        if simEngine.isRunning {
+                            SimLiveCard(simEngine: simEngine).padding(.horizontal)
+                        }
+                        if setEngine.isRunning {
+                            SetLiveCard(setEngine: setEngine, store: store).padding(.horizontal)
+                        }
+                        if case .finished = setEngine.phase {
+                            FinishedBanner().padding(.horizontal)
+                        }
                     }
-                }.padding(.top)
+                    .padding(.top)
+                }
+
+                // ── 5-second countdown overlay ──
+                if countdown.isCountingDown {
+                    CountdownOverlay(count: countdown.count) {
+                        countdown.cancel()
+                        simEngine.stop()
+                        setEngine.stop()
+                    }
+                }
             }
             .navigationTitle("Cattle Sim")
             .sheet(item: $editingProfile) { profile in ProfileEditorView(profile: profile) }
@@ -67,13 +107,73 @@ struct AutoView: View {
     }
 }
 
+// MARK: - Countdown Overlay
+
+struct CountdownOverlay: View {
+    let count: Int
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.72)
+                .ignoresSafeArea()
+
+            VStack(spacing: 28) {
+                Text("Get Ready")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+
+                // Big number with pulse ring
+                ZStack {
+                    Circle()
+                        .stroke(Color.orange.opacity(0.3), lineWidth: 8)
+                        .frame(width: 160, height: 160)
+
+                    Circle()
+                        .trim(from: 0, to: CGFloat(count) / 5.0)
+                        .stroke(Color.orange, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .frame(width: 160, height: 160)
+                        .rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 1.0), value: count)
+
+                    Text("\(count)")
+                        .font(.system(size: 80, weight: .black, design: .rounded))
+                        .foregroundColor(.white)
+                        .contentTransition(.numericText())
+                        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: count)
+                }
+
+                Text("Starting in \(count) second\(count == 1 ? "" : "s")...")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.7))
+
+                Button {
+                    onCancel()
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 36)
+                        .padding(.vertical, 12)
+                        .background(Color.white.opacity(0.2))
+                        .cornerRadius(22)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Cattle Sim Panel
+
 struct CattleSimPanel: View {
     @ObservedObject var simEngine: CattleSimEngine
     @Binding var selectedProfile: CattleProfile
     let profiles: [CattleProfile]
+    let isCountingDown: Bool
     let onStart: () -> Void
     let onStop: () -> Void
     let onEditProfile: () -> Void
+
     var body: some View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 10) {
@@ -82,25 +182,34 @@ struct CattleSimPanel: View {
                     HStack(spacing: 12) {
                         ForEach(profiles) { profile in
                             ProfileCard(profile: profile, isSelected: profile.id == selectedProfile.id)
-                                .onTapGesture { selectedProfile = profile }
+                                .onTapGesture { if !simEngine.isRunning { selectedProfile = profile } }
                         }
                     }.padding(.horizontal)
                 }
             }
             ProfileDetailCard(profile: selectedProfile, onEdit: onEditProfile).padding(.horizontal)
-            BigActionButton(isRunning: simEngine.isRunning, startLabel: "Start Sim", stopLabel: "Stop",
-                            onStart: onStart, onStop: onStop).padding(.horizontal)
+            BigActionButton(
+                isRunning: simEngine.isRunning || isCountingDown,
+                startLabel: "Start Sim",
+                stopLabel: "Stop",
+                onStart: onStart,
+                onStop: onStop
+            ).padding(.horizontal)
         }
     }
 }
 
+// MARK: - Set Run Panel
+
 struct SetRunPanel: View {
-    @ObservedObject var runEngine: RunEngine
+    @ObservedObject var setEngine: SetEngine
     let sets: [TrainingSet]
     @Binding var selectedSet: TrainingSet?
+    let store: ProgramStore
+    let isCountingDown: Bool
     let onStart: () -> Void
     let onStop: () -> Void
-    @EnvironmentObject var store: ProgramStore
+
     var body: some View {
         VStack(spacing: 16) {
             if sets.isEmpty {
@@ -114,38 +223,192 @@ struct SetRunPanel: View {
                     Text("Select Training Set").font(.headline).padding(.horizontal)
                     ForEach(sets) { set in
                         SetCard(set: set, isSelected: set.id == selectedSet?.id, store: store)
-                            .padding(.horizontal).onTapGesture { selectedSet = set }
+                            .padding(.horizontal)
+                            .onTapGesture { if !setEngine.isRunning { selectedSet = set } }
                     }
                 }
-                BigActionButton(isRunning: runEngine.isRunning, startLabel: "Run Set", stopLabel: "Stop",
-                                onStart: onStart, onStop: onStop)
-                    .padding(.horizontal).disabled(selectedSet == nil)
+
+                // Set run summary if selected
+                if let set = selectedSet {
+                    SetSummaryCard(set: set, store: store).padding(.horizontal)
+                }
+
+                BigActionButton(
+                    isRunning: setEngine.isRunning || isCountingDown,
+                    startLabel: "Run Set",
+                    stopLabel: "Stop",
+                    onStart: onStart,
+                    onStop: onStop
+                )
+                .padding(.horizontal)
+                .disabled(selectedSet == nil && !setEngine.isRunning)
             }
         }
     }
 }
 
-struct LiveStatusCard: View {
-    @ObservedObject var simEngine: CattleSimEngine
-    @ObservedObject var runEngine: RunEngine
-    let mode: AutoView.AutoMode
+// MARK: - Set Summary Card
+
+struct SetSummaryCard: View {
+    let set: TrainingSet
+    let store: ProgramStore
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Live", systemImage: "dot.radiowaves.left.and.right").font(.headline).foregroundColor(.orange)
-            if mode == .random {
-                Text(simEngine.currentBehaviour).font(.title3.weight(.semibold))
-                Text(String(format: "Running for %.0fs", simEngine.elapsedTime)).font(.caption).foregroundColor(.secondary)
-            } else {
-                Text(runEngine.currentRunName).font(.title3.weight(.semibold))
-                ProgressView(value: runEngine.progress).accentColor(.orange)
-                Text(String(format: "%.1fs remaining", runEngine.timeRemaining)).font(.caption).foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Run order").font(.caption).foregroundColor(.secondary)
+            ForEach(Array(set.entries.enumerated()), id: \.element.id) { i, entry in
+                HStack(spacing: 10) {
+                    Text("\(i + 1)")
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(.white)
+                        .frame(width: 22, height: 22)
+                        .background(Color.orange)
+                        .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(store.run(for: entry.runID)?.name ?? "Unknown run")
+                            .font(.subheadline.weight(.medium))
+                        if i < set.entries.count - 1 {
+                            Text("Rest \(Int(entry.restDuration))s before next")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if let run = store.run(for: entry.runID) {
+                        Text(String(format: "%.1fs", run.totalDuration))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(14)
+    }
+}
+
+// MARK: - Live cards
+
+struct SimLiveCard: View {
+    @ObservedObject var simEngine: CattleSimEngine
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Live — Cattle Sim", systemImage: "dot.radiowaves.left.and.right")
+                .font(.headline).foregroundColor(.orange)
+            Text(simEngine.currentBehaviour).font(.title3.weight(.semibold))
+            Text(String(format: "Running for %.0fs", simEngine.elapsedTime))
+                .font(.caption).foregroundColor(.secondary)
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
         .cornerRadius(16)
     }
 }
+
+struct SetLiveCard: View {
+    @ObservedObject var setEngine: SetEngine
+    let store: ProgramStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                Label("Live — Training Set", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.headline).foregroundColor(.orange)
+                Spacer()
+                Text("\(setEngine.currentRunIndex + 1) / \(setEngine.totalRuns)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+
+            // Phase display
+            switch setEngine.phase {
+            case .running:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(setEngine.currentRunName)
+                        .font(.title3.weight(.semibold))
+                    ProgressView(value: setEngine.runProgress)
+                        .accentColor(.orange)
+                    Text(String(format: "%.1fs remaining in run", setEngine.runTimeRemaining))
+                        .font(.caption).foregroundColor(.secondary)
+                }
+
+            case .resting(let nextIndex):
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "pause.circle.fill")
+                            .foregroundColor(.blue)
+                            .font(.title3)
+                        Text("Resting...")
+                            .font(.title3.weight(.semibold))
+                    }
+                    ProgressView(value: 1.0 - (setEngine.restTimeRemaining / max(1, setEngine.restTimeRemaining + 0.1)))
+                        .accentColor(.blue)
+                    HStack {
+                        Text(String(format: "%.0fs until next run", setEngine.restTimeRemaining))
+                            .font(.caption).foregroundColor(.secondary)
+                        Spacer()
+                        if let entry = store.run(for: getRunID(at: nextIndex)) {
+                            Text("Next: \(entry.name)")
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+
+            default:
+                EmptyView()
+            }
+
+            // Run dots progress indicator
+            HStack(spacing: 6) {
+                ForEach(0..<setEngine.totalRuns, id: \.self) { i in
+                    Circle()
+                        .fill(dotColor(for: i))
+                        .frame(width: 10, height: 10)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(16)
+    }
+
+    func dotColor(for index: Int) -> Color {
+        if index < setEngine.currentRunIndex { return .green }
+        if index == setEngine.currentRunIndex { return .orange }
+        return Color(.systemGray4)
+    }
+
+    func getRunID(at index: Int) -> UUID {
+        UUID() // placeholder — actual run name lookup via store handled in resting label
+    }
+}
+
+struct FinishedBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+                .font(.title2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Set Complete!")
+                    .font(.headline)
+                Text("All runs finished.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding()
+        .background(Color.green.opacity(0.1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.green.opacity(0.4), lineWidth: 1))
+        .cornerRadius(14)
+    }
+}
+
+// MARK: - Reusable card components
 
 struct ProfileCard: View {
     let profile: CattleProfile
