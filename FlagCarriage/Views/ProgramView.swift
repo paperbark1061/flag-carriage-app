@@ -216,11 +216,13 @@ struct SetDetailView: View {
 
     var body: some View {
         List {
+            // Summary
             Section {
                 HStack { Label("Cows", systemImage: "list.number"); Spacer(); Text("\(trainingSet.entries.count)").foregroundColor(.secondary) }
                 HStack { Label("Total duration", systemImage: "clock"); Spacer(); Text(String(format: "%.1fs", totalDuration)).foregroundColor(.secondary) }
             } header: { Text("Summary") }
 
+            // Cow list
             Section {
                 if trainingSet.entries.isEmpty {
                     Text("No cows in this set yet").foregroundColor(.secondary).font(.subheadline)
@@ -249,6 +251,7 @@ struct SetDetailView: View {
                 }
             } header: { Text("Cows in order") }
 
+            // Buttons — no header, they're self-explanatory
             Section {
                 NavigationLink(destination: AutoViewPreloaded(set: trainingSet), isActive: $navigateToSim) { EmptyView() }
                 Button {
@@ -281,7 +284,7 @@ struct SetDetailView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-            } header: { Text("Actions") }
+            }
         }
         .navigationTitle(trainingSet.name)
         .sheet(isPresented: $showEdit, onDismiss: syncFromStore) { SetEditorView(set: trainingSet) }
