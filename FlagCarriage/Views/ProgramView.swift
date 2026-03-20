@@ -216,13 +216,11 @@ struct SetDetailView: View {
 
     var body: some View {
         List {
-            // Summary
             Section {
                 HStack { Label("Cows", systemImage: "list.number"); Spacer(); Text("\(trainingSet.entries.count)").foregroundColor(.secondary) }
                 HStack { Label("Total duration", systemImage: "clock"); Spacer(); Text(String(format: "%.1fs", totalDuration)).foregroundColor(.secondary) }
             } header: { Text("Summary") }
 
-            // Cow list
             Section {
                 if trainingSet.entries.isEmpty {
                     Text("No cows in this set yet").foregroundColor(.secondary).font(.subheadline)
@@ -251,7 +249,6 @@ struct SetDetailView: View {
                 }
             } header: { Text("Cows in order") }
 
-            // Buttons — no header, they're self-explanatory
             Section {
                 NavigationLink(destination: AutoViewPreloaded(set: trainingSet), isActive: $navigateToSim) { EmptyView() }
                 Button {
@@ -464,9 +461,11 @@ struct SetEditorView: View {
     @State private var entries: [SetEntry] = []
     @State private var showRunPicker = false
     @State private var restDuration: Double = 30
+
     var body: some View {
         NavigationView {
             Form {
+                // Name
                 Section {
                     HStack {
                         TextField("Set name", text: $name)
@@ -477,19 +476,34 @@ struct SetEditorView: View {
                 } header: { Text("Name your set") }
                 footer: { Text("Auto-generated — tap \(Image(systemName: "shuffle")) for another, or type your own.").font(.caption) }
 
+                // Cows — delete and drag to reorder
                 Section {
                     ForEach(entries) { entry in
-                        if let run = store.run(for: entry.runID) {
-                            HStack {
-                                Text(run.name)
-                                Spacer()
-                                Text("Rest \(Int(entry.restDuration))s").font(.caption).foregroundColor(.secondary)
+                        HStack(spacing: 12) {
+                            // Drag handle hint
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 14))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(store.run(for: entry.runID)?.name ?? "Unknown cow")
+                                    .fontWeight(.medium)
+                                Text("Rest \(Int(entry.restDuration))s")
+                                    .font(.caption).foregroundColor(.secondary)
                             }
                         }
-                    }.onDelete { entries.remove(atOffsets: $0) }
-                    Button { showRunPicker = true } label: { Label("Add Cow", systemImage: "plus") }
-                } header: { Text("Cows in order") }
+                    }
+                    .onDelete { entries.remove(atOffsets: $0) }
+                    .onMove   { entries.move(fromOffsets: $0, toOffset: $1) }
 
+                    Button { showRunPicker = true } label: { Label("Add Cow", systemImage: "plus") }
+                } header: {
+                    Text("Cows in order")
+                } footer: {
+                    Text("Tap Edit to drag and reorder, or swipe left to remove.")
+                        .font(.caption)
+                }
+
+                // Rest
                 Section {
                     HStack {
                         Text("Rest between cows")
@@ -503,6 +517,8 @@ struct SetEditorView: View {
                 leading:  Button("Cancel") { dismiss() },
                 trailing: Button("Save") { save() }.disabled(name.isEmpty || entries.isEmpty)
             )
+            // EditButton enables drag handles and delete icons simultaneously
+            .toolbar { EditButton() }
             .sheet(isPresented: $showRunPicker) {
                 RunPickerView { run in entries.append(SetEntry(runID: run.id, restDuration: restDuration)) }
             }
@@ -512,6 +528,7 @@ struct SetEditorView: View {
             }
         }
     }
+
     func save() {
         var s = set ?? TrainingSet(name: name, entries: [])
         s.name = name.trimmingCharacters(in: .whitespaces).isEmpty ? SetNameGenerator.generate() : name
