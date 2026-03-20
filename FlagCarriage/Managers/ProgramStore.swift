@@ -81,7 +81,7 @@ struct CattleProfile: Identifiable, Codable {
             changeFrequency: 1.8),
         CattleProfile(name: "Hot Cow", aggression: .hot,
             minSpeed: 160, maxSpeed: 255,
-            minRunDuration: 0.4, maxRunDuration: 1.5,
+            minRunDuration: 1.5, maxRunDuration: 3.0,
             pauseChance: 0.1, minPauseDuration: 0.2, maxPauseDuration: 0.6,
             changeFrequency: 0.9),
     ]
