@@ -1,5 +1,19 @@
 import SwiftUI
 
+// Renders an emoji as a UIImage for use in tab bar icons
+extension UIImage {
+    static func emoji(_ emoji: String, size: CGFloat = 28) -> UIImage {
+        let nsString = emoji as NSString
+        let font = UIFont.systemFont(ofSize: size)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let strSize = nsString.size(withAttributes: attrs)
+        let renderer = UIGraphicsImageRenderer(size: strSize)
+        return renderer.image { _ in
+            nsString.draw(at: .zero, withAttributes: attrs)
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var connection: ConnectionManager
     @State private var selectedTab = 0
@@ -14,13 +28,11 @@ struct ContentView: View {
                 .tag(1)
             AutoView()
                 .tabItem {
-                    // SF Symbols has no cow — use the closest cattle-themed icon
-                    // with a custom label that makes the intent clear
                     Label {
                         Text("Cattle Sim")
                     } icon: {
-                        Image(systemName: "aqi.medium")
-                            .symbolRenderingMode(.hierarchical)
+                        Image(uiImage: UIImage.emoji("🐄"))
+                            .renderingMode(.original)
                     }
                 }
                 .tag(2)
