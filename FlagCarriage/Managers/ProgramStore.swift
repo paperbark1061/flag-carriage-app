@@ -92,8 +92,8 @@ class ProgramStore: ObservableObject {
     @Published var sets: [TrainingSet] = []
     @Published var cattleProfiles: [CattleProfile] = CattleProfile.defaults
 
-    private let runsKey = "savedRuns"
-    private let setsKey = "savedSets"
+    private let runsKey     = "savedRuns"
+    private let setsKey     = "savedSets"
     private let profilesKey = "savedProfiles"
 
     init() { load() }
@@ -121,6 +121,16 @@ class ProgramStore: ObservableObject {
         if let idx = cattleProfiles.firstIndex(where: { $0.id == profile.id }) { cattleProfiles[idx] = profile }
         else { cattleProfiles.append(profile) }
         persist()
+    }
+
+    /// Wipes all cows, sets and cattle profiles, then resets profiles to defaults.
+    func eraseAllData() {
+        runs           = []
+        sets           = []
+        cattleProfiles = CattleProfile.defaults
+        UserDefaults.standard.removeObject(forKey: runsKey)
+        UserDefaults.standard.removeObject(forKey: setsKey)
+        UserDefaults.standard.removeObject(forKey: profilesKey)
     }
 
     private func persist() {

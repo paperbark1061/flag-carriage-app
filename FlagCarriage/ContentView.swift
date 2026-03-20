@@ -39,6 +39,9 @@ struct ContentView: View {
             ConnectView()
                 .tabItem { Label("Connect", systemImage: "wifi") }
                 .tag(3)
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                .tag(4)
         }
         .accentColor(.orange)
         .overlay(alignment: .top) {
