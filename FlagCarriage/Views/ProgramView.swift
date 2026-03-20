@@ -12,9 +12,10 @@ struct ProgramView: View {
     var body: some View {
         NavigationView {
             List {
+                // ── Cows section ──────────────────────────────────────
                 Section {
                     if store.runs.isEmpty {
-                        Text("No programs yet — tap + to create one")
+                        Text("No cows yet — tap + to create one")
                             .foregroundColor(.secondary).font(.subheadline)
                     }
                     ForEach(store.runs) { run in
@@ -29,13 +30,14 @@ struct ProgramView: View {
                     }
                 } header: {
                     HStack {
-                        Text("Programs")
+                        Text("Cows")
                         Spacer()
                         Button { showNewRun = true }
                             label: { Image(systemName: "plus.circle.fill").foregroundColor(.orange) }
                     }
                 }
 
+                // ── Sets section ──────────────────────────────────────
                 Section {
                     if store.sets.isEmpty {
                         Text("No sets yet").foregroundColor(.secondary).font(.subheadline)
@@ -44,7 +46,7 @@ struct ProgramView: View {
                         NavigationLink(destination: SetDetailView(trainingSet: set)) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(set.name).fontWeight(.semibold)
-                                Text("\(set.entries.count) runs").font(.caption).foregroundColor(.secondary)
+                                Text("\(set.entries.count) cows").font(.caption).foregroundColor(.secondary)
                             }.padding(.vertical, 4)
                         }
                         .swipeActions(edge: .trailing) {
@@ -54,7 +56,7 @@ struct ProgramView: View {
                     }
                 } header: {
                     HStack {
-                        Text("Training Sets")
+                        Text("Sets")
                         Spacer()
                         Button { showNewSet = true }
                             label: { Image(systemName: "plus.circle.fill").foregroundColor(.orange) }
@@ -67,7 +69,7 @@ struct ProgramView: View {
                     } header: { Text("Running Now") }
                 }
             }
-            .navigationTitle("Programs")
+            .navigationTitle("Sets")
             .sheet(isPresented: $showNewRun)  { RunEditorView(run: nil) }
             .sheet(item: $editingRun)         { run in RunEditorView(run: run) }
             .sheet(isPresented: $showNewSet)  { SetEditorView(set: nil) }
@@ -85,7 +87,7 @@ struct RunRowView: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(run.name).fontWeight(.semibold)
-                Text("\(run.steps.count) steps · \(String(format: "%.1f", run.totalDuration))s")
+                Text("\(run.steps.count) steps \u00b7 \(String(format: "%.1f", run.totalDuration))s")
                     .font(.caption).foregroundColor(.secondary)
             }
             Spacer()
@@ -126,7 +128,7 @@ struct RunEditorView: View {
     var body: some View {
         NavigationView {
             List {
-                Section { TextField("Program name", text: $name) } header: { Text("Name") }
+                Section { TextField("Cow name", text: $name) } header: { Text("Name") }
                 Section {
                     ForEach(steps) { step in StepRow(step: step) }
                         .onDelete { steps.remove(atOffsets: $0) }
@@ -141,7 +143,7 @@ struct RunEditorView: View {
                     }
                 }
             }
-            .navigationTitle(run == nil ? "New Program" : "Edit Program")
+            .navigationTitle(run == nil ? "New Cow" : "Edit Cow")
             .navigationBarItems(
                 leading:  Button("Cancel") { dismiss() },
                 trailing: Button("Save") { save() }.disabled(name.isEmpty || steps.isEmpty)
@@ -255,11 +257,11 @@ struct SetEditorView: View {
                             }
                         }
                     }.onDelete { entries.remove(atOffsets: $0) }
-                    Button { showRunPicker = true } label: { Label("Add Run", systemImage: "plus") }
-                } header: { Text("Runs in order") }
+                    Button { showRunPicker = true } label: { Label("Add Cow", systemImage: "plus") }
+                } header: { Text("Cows in order") }
                 Section {
                     HStack {
-                        Text("Rest between runs")
+                        Text("Rest between cows")
                         Slider(value: $restDuration, in: 5...120, step: 5)
                         Text("\(Int(restDuration))s").frame(width: 40)
                     }
@@ -295,12 +297,12 @@ struct RunPickerView: View {
                 } label: {
                     VStack(alignment: .leading) {
                         Text(run.name).foregroundColor(.primary)
-                        Text("\(run.steps.count) steps · \(String(format: "%.1f", run.totalDuration))s")
+                        Text("\(run.steps.count) steps \u00b7 \(String(format: "%.1f", run.totalDuration))s")
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }
             }
-            .navigationTitle("Pick a Run")
+            .navigationTitle("Pick a Cow")
             .navigationBarItems(trailing: Button("Cancel") { dismiss() })
         }
     }

@@ -10,7 +10,7 @@ struct ContentView: View {
                 .tabItem { Label("Manual", systemImage: "hand.point.up.fill") }
                 .tag(0)
             ProgramView()
-                .tabItem { Label("Program", systemImage: "list.bullet.rectangle") }
+                .tabItem { Label("Sets", systemImage: "list.bullet.rectangle") }
                 .tag(1)
             AutoView()
                 .tabItem { Label("Cattle Sim", systemImage: "hare.fill") }
