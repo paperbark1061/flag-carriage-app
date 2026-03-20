@@ -363,7 +363,7 @@ struct DirectionColumn: View {
 
             VStack(spacing: 4) {
                 Image(systemName: arrowIcon).font(.system(size: 30, weight: .bold))
-                Text("HOLD").font(.system(size: 11, weight: .bold))
+                Text("MOVE").font(.system(size: 11, weight: .bold))
             }
             .foregroundColor(.white)
             .frame(width: 110, height: 90)
