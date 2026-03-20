@@ -1,5 +1,63 @@
 import SwiftUI
 
+// MARK: - Set Name Generator
+
+enum SetNameGenerator {
+    private static let names = [
+        "A Walk in the Park",
+        "Sunday Arvo Stroll",
+        "Easy Does It",
+        "The Warm Up",
+        "Lazy Lap",
+        "Breezy Tuesday",
+        "Just Getting Started",
+        "Gentle Nudge Session",
+        "The Soft Intro",
+        "Moseying Along",
+        "Half Awake",
+        "Coffee First",
+        "The Slow Burn",
+        "Rolling Hills",
+        "Light Jogging",
+        "Taking the Scenic Route",
+        "No Rush Mate",
+        "After Lunch Special",
+        "The Warm Down",
+        "Friday Afternoon Feels",
+        "Get Off the Fence",
+        "Full Send",
+        "Chaos Theory",
+        "The Pressure Cooker",
+        "Hot Under the Collar",
+        "No Mercy",
+        "Buckle Up Buttercup",
+        "Boot Camp",
+        "The Rodeo",
+        "Hang On Tight",
+        "Red Mist Rising",
+        "Absolute Mayhem",
+        "She's Gonna Blow",
+        "The Wrecking Crew",
+        "Advanced Aggression",
+        "Tuesday Mixed Bag",
+        "Something for Everyone",
+        "The Classic",
+        "Old Faithful",
+        "Back to Basics",
+        "Bread and Butter",
+        "The Foundation",
+        "Standard Issue",
+        "Run of the Mill",
+        "The Usual Suspects",
+    ]
+
+    static func generate() -> String {
+        names.randomElement() ?? "The Classic"
+    }
+}
+
+// MARK: - ProgramView
+
 struct ProgramView: View {
     @EnvironmentObject var store: ProgramStore
     @EnvironmentObject var connection: ConnectionManager
@@ -12,7 +70,7 @@ struct ProgramView: View {
     var body: some View {
         NavigationView {
             List {
-                // ── Cows section ──────────────────────────────────────
+                // Cows section
                 Section {
                     if store.runs.isEmpty {
                         Text("No cows yet — tap + to create one")
@@ -37,7 +95,7 @@ struct ProgramView: View {
                     }
                 }
 
-                // ── Sets section ──────────────────────────────────────
+                // Sets section
                 Section {
                     if store.sets.isEmpty {
                         Text("No sets yet").foregroundColor(.secondary).font(.subheadline)
@@ -77,6 +135,8 @@ struct ProgramView: View {
     }
 }
 
+// MARK: - Run Row
+
 struct RunRowView: View {
     let run: CarriageRun
     @ObservedObject var engine: RunEngine
@@ -103,6 +163,8 @@ struct RunRowView: View {
     }
 }
 
+// MARK: - Run Progress
+
 struct RunProgressView: View {
     @ObservedObject var engine: RunEngine
     var body: some View {
@@ -117,6 +179,8 @@ struct RunProgressView: View {
         }
     }
 }
+
+// MARK: - Run (Cow) Editor
 
 struct RunEditorView: View {
     @EnvironmentObject var store: ProgramStore
@@ -160,6 +224,8 @@ struct RunEditorView: View {
     }
 }
 
+// MARK: - Step Row
+
 struct StepRow: View {
     let step: RunStep
     var body: some View {
@@ -175,6 +241,8 @@ struct StepRow: View {
         }
     }
 }
+
+// MARK: - Step Editor
 
 struct StepEditorView: View {
     @Environment(\.dismiss) var dismiss
@@ -217,6 +285,8 @@ struct StepEditorView: View {
     }
 }
 
+// MARK: - Set Detail
+
 struct SetDetailView: View {
     @EnvironmentObject var store: ProgramStore
     let trainingSet: TrainingSet
@@ -235,6 +305,8 @@ struct SetDetailView: View {
     }
 }
 
+// MARK: - Set Editor
+
 struct SetEditorView: View {
     @EnvironmentObject var store: ProgramStore
     @Environment(\.dismiss) var dismiss
@@ -243,10 +315,29 @@ struct SetEditorView: View {
     @State private var entries: [SetEntry] = []
     @State private var showRunPicker = false
     @State private var restDuration: Double = 30
+
     var body: some View {
         NavigationView {
             Form {
-                Section { TextField("Set name", text: $name) } header: { Text("Name") }
+                // Name with auto-generate and shuffle
+                Section {
+                    HStack {
+                        TextField("Set name", text: $name)
+                        Button {
+                            name = SetNameGenerator.generate()
+                        } label: {
+                            Image(systemName: "shuffle")
+                                .foregroundColor(.orange)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Name your set")
+                } footer: {
+                    Text("Auto-generated — tap \(Image(systemName: "shuffle")) for another, or type your own.")
+                        .font(.caption)
+                }
+
                 Section {
                     ForEach(entries) { entry in
                         if let run = store.run(for: entry.runID) {
@@ -259,6 +350,7 @@ struct SetEditorView: View {
                     }.onDelete { entries.remove(atOffsets: $0) }
                     Button { showRunPicker = true } label: { Label("Add Cow", systemImage: "plus") }
                 } header: { Text("Cows in order") }
+
                 Section {
                     HStack {
                         Text("Rest between cows")
@@ -275,15 +367,28 @@ struct SetEditorView: View {
             .sheet(isPresented: $showRunPicker) {
                 RunPickerView { run in entries.append(SetEntry(runID: run.id, restDuration: restDuration)) }
             }
-            .onAppear { if let s = set { name = s.name; entries = s.entries } }
+            .onAppear {
+                if let s = set {
+                    name = s.name
+                    entries = s.entries
+                } else {
+                    name = SetNameGenerator.generate()  // auto-name new sets
+                }
+            }
         }
     }
+
     func save() {
         var s = set ?? TrainingSet(name: name, entries: [])
-        s.name = name; s.entries = entries
+        s.name = name.trimmingCharacters(in: .whitespaces).isEmpty
+            ? SetNameGenerator.generate()
+            : name
+        s.entries = entries
         store.saveSet(s); dismiss()
     }
 }
+
+// MARK: - Run Picker
 
 struct RunPickerView: View {
     @EnvironmentObject var store: ProgramStore
