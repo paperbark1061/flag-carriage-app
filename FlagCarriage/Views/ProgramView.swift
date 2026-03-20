@@ -87,7 +87,7 @@ struct RunRowView: View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(run.name).fontWeight(.semibold)
-                Text("\(run.steps.count) steps \u00b7 \(String(format: "%.1f", run.totalDuration))s")
+                Text("\(run.steps.count) steps · \(String(format: "%.1f", run.totalDuration))s")
                     .font(.caption).foregroundColor(.secondary)
             }
             Spacer()
@@ -297,7 +297,7 @@ struct RunPickerView: View {
                 } label: {
                     VStack(alignment: .leading) {
                         Text(run.name).foregroundColor(.primary)
-                        Text("\(run.steps.count) steps \u00b7 \(String(format: "%.1f", run.totalDuration))s")
+                        Text("\(run.steps.count) steps · \(String(format: "%.1f", run.totalDuration))s")
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }
