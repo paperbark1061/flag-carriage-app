@@ -1,7 +1,7 @@
 import Foundation
-import UIKit   // for haptic feedback
+import UIKit
 
-// MARK: - Haptics helper
+// MARK: - Haptics
 
 struct Haptics {
     static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
@@ -15,12 +15,35 @@ struct Haptics {
     }
 }
 
+// MARK: - ArenaStore
+// Persists the measured rope length (in seconds of travel at full speed).
+// A nil value means no arena has been set.
+
+class ArenaStore: ObservableObject {
+    static let shared = ArenaStore()
+    private let key = "arenaLengthSeconds"
+
+    /// Measured rope length in seconds of motor-on time. nil = not set.
+    @Published var lengthSeconds: Double? {
+        didSet {
+            if let v = lengthSeconds { UserDefaults.standard.set(v, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+    }
+
+    private init() {
+        let v = UserDefaults.standard.double(forKey: key)
+        lengthSeconds = v > 0 ? v : nil
+    }
+
+    func clear() { lengthSeconds = nil }
+}
+
 // MARK: - Countdown Engine
 
 class CountdownEngine: ObservableObject {
     @Published var isCountingDown = false
     @Published var count: Int = 5
-
     private var timer: Timer?
     private var onComplete: (() -> Void)?
 
@@ -83,6 +106,7 @@ class RunEngine: ObservableObject {
         timer?.invalidate()
         timer         = nil
         isRunning     = false
+        connection?.activeStepLabel = ""
         connection?.stop()
         progress      = 0
         timeRemaining = 0
@@ -95,6 +119,12 @@ class RunEngine: ObservableObject {
         timeRemaining = step.duration
         progress      = 0
         if step.direction != .stop { Haptics.impact(.medium) }
+        // Update manual view indicator
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let dir = step.direction == .forward ? "F" : step.direction == .backward ? "B" : "S"
+            self.connection?.activeStepLabel = dir
+        }
         connection?.setSpeed(step.speed)
         connection?.send(step.direction.rawValue)
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -113,6 +143,7 @@ class RunEngine: ObservableObject {
 
     private func finish() {
         isRunning        = false
+        connection?.activeStepLabel = ""
         connection?.stop()
         currentStepIndex = 0
         progress         = 0
@@ -170,31 +201,24 @@ class SetEngine: ObservableObject {
         runProgress       = 0
         restTimeRemaining = 0
         nextRunName       = ""
+        connection?.activeStepLabel = ""
         Haptics.impact(.rigid)
     }
 
     private func executeRun(at index: Int) {
         guard let set = set, let store = store, let connection = connection else { return }
         guard index < set.entries.count else { finish(); return }
-
         let entry = set.entries[index]
-        guard let run = store.run(for: entry.runID) else {
-            executeRun(at: index + 1)
-            return
-        }
-
+        guard let run = store.run(for: entry.runID) else { executeRun(at: index + 1); return }
         currentRunIndex = index
         nextRunName     = ""
         phase           = .running(runIndex: index)
         Haptics.impact(.medium)
-
         runEngine.onFinish = { [weak self] in
             guard let self = self else { return }
             let restDur = set.entries[index].restDuration
             if index + 1 < set.entries.count && restDur > 0 {
-                if let nextRun = store.run(for: set.entries[index + 1].runID) {
-                    self.nextRunName = nextRun.name
-                }
+                if let nextRun = store.run(for: set.entries[index + 1].runID) { self.nextRunName = nextRun.name }
                 self.startRest(duration: restDur, nextIndex: index + 1)
             } else {
                 self.executeRun(at: index + 1)
@@ -205,6 +229,7 @@ class SetEngine: ObservableObject {
 
     private func startRest(duration: Double, nextIndex: Int) {
         connection?.stop()
+        connection?.activeStepLabel = ""
         restDuration      = duration
         restElapsed       = 0
         restTimeRemaining = duration
@@ -215,8 +240,7 @@ class SetEngine: ObservableObject {
             self.restElapsed       += 0.1
             self.restTimeRemaining  = max(self.restDuration - self.restElapsed, 0)
             if self.restElapsed >= self.restDuration {
-                self.restTimer?.invalidate()
-                self.restTimer = nil
+                self.restTimer?.invalidate(); self.restTimer = nil
                 self.executeRun(at: nextIndex)
             }
         }
@@ -224,6 +248,7 @@ class SetEngine: ObservableObject {
 
     private func finish() {
         connection?.stop()
+        connection?.activeStepLabel = ""
         isRunning = false
         phase     = .finished
         Haptics.notification(.success)
@@ -247,48 +272,52 @@ class SetEngine: ObservableObject {
 // MARK: - Cattle Sim Engine
 
 class CattleSimEngine: ObservableObject {
-    @Published var isRunning         = false
-    @Published var currentBehaviour  = "Idle"
-    @Published var currentProfileName = ""   // shown in live card during Wild Side
-    @Published var elapsedTime: Double = 0
+    @Published var isRunning          = false
+    @Published var currentBehaviour   = "Idle"
+    @Published var currentProfileName = ""
+    @Published var elapsedTime: Double    = 0
     @Published var targetDuration: Double = 0
+    // 3-minute run timer
+    @Published var sessionTimeRemaining: Double = 180
+    @Published var sessionProgress: Double = 0
+    let sessionDuration: Double = 180   // 3 minutes
 
-    // Wild Side mode — cycles randomly through all available profiles
     private var isWildSide = false
     private var allProfiles: [CattleProfile] = []
-    private var wildSideTimer: Timer?        // swaps profile every 15-45s
-
+    private var wildSideTimer: Timer?
     private var timer: Timer?
     private var phaseTimer: Timer?
     private weak var connection: ConnectionManager?
     private var profile: CattleProfile?
     private var lastDirection: StepDirection = .forward
 
-    // Normal start — specific profile chosen
     func start(profile: CattleProfile, connection: ConnectionManager) {
-        self.isWildSide  = false
-        self.allProfiles = []
-        self.profile     = profile
-        self.connection  = connection
-        currentProfileName = profile.name
-        isRunning        = true
-        elapsedTime      = 0
+        self.isWildSide        = false
+        self.allProfiles       = []
+        self.profile           = profile
+        self.connection        = connection
+        currentProfileName     = profile.name
+        isRunning              = true
+        elapsedTime            = 0
+        sessionTimeRemaining   = sessionDuration
+        sessionProgress        = 0
         scheduleNextPhase()
-        startElapsedTimer()
+        startTimers()
     }
 
-    // Wild Side start — rotates through all profiles at random intervals
     func startWildSide(profiles: [CattleProfile], connection: ConnectionManager) {
         guard !profiles.isEmpty else { return }
-        self.isWildSide  = true
-        self.allProfiles = profiles
-        self.connection  = connection
-        self.profile     = profiles.randomElement()
-        currentProfileName = self.profile?.name ?? ""
-        isRunning        = true
-        elapsedTime      = 0
+        self.isWildSide        = true
+        self.allProfiles       = profiles
+        self.connection        = connection
+        self.profile           = profiles.randomElement()
+        currentProfileName     = self.profile?.name ?? ""
+        isRunning              = true
+        elapsedTime            = 0
+        sessionTimeRemaining   = sessionDuration
+        sessionProgress        = 0
         scheduleNextPhase()
-        startElapsedTimer()
+        startTimers()
         scheduleWildSideSwap()
     }
 
@@ -297,23 +326,31 @@ class CattleSimEngine: ObservableObject {
         phaseTimer?.invalidate()
         wildSideTimer?.invalidate()
         timer = nil; phaseTimer = nil; wildSideTimer = nil
-        isRunning        = false
-        isWildSide       = false
+        isRunning            = false
+        isWildSide           = false
+        connection?.activeStepLabel = ""
         connection?.stop()
-        currentBehaviour = "Stopped"
-        currentProfileName = ""
+        currentBehaviour     = "Stopped"
+        currentProfileName   = ""
         Haptics.impact(.rigid)
     }
 
     // MARK: Private
 
-    private func startElapsedTimer() {
+    private func startTimers() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.elapsedTime += 0.1
+            guard let self = self, self.isRunning else { return }
+            self.elapsedTime          += 0.1
+            self.sessionTimeRemaining  = max(self.sessionDuration - self.elapsedTime, 0)
+            self.sessionProgress       = min(self.elapsedTime / self.sessionDuration, 1.0)
+            if self.elapsedTime >= self.sessionDuration {
+                // Auto-stop after 3 minutes
+                self.stop()
+                Haptics.notification(.success)
+            }
         }
     }
 
-    // Wild Side: swap to a random (different) profile every 15-45 seconds
     private func scheduleWildSideSwap() {
         guard isWildSide, !allProfiles.isEmpty else { return }
         let interval = Double.random(in: 15...45)
@@ -322,39 +359,38 @@ class CattleSimEngine: ObservableObject {
             let others = self.allProfiles.filter { $0.id != self.profile?.id }
             if let next = (others.isEmpty ? self.allProfiles : others).randomElement() {
                 self.profile = next
-                DispatchQueue.main.async {
-                    self.currentProfileName = next.name
-                }
+                DispatchQueue.main.async { self.currentProfileName = next.name }
                 Haptics.impact(.medium)
             }
-            self.scheduleWildSideSwap()   // schedule the next swap
+            self.scheduleWildSideSwap()
         }
     }
 
     private func scheduleNextPhase() {
         guard let profile = profile, isRunning else { return }
+        // Cap step duration to arena length if set
+        let arenaMax = ArenaStore.shared.lengthSeconds
         if Double.random(in: 0...1) < profile.pauseChance {
             let duration = Double.random(in: profile.minPauseDuration...profile.maxPauseDuration)
             currentBehaviour = "Hesitating..."
             targetDuration   = duration
+            connection?.activeStepLabel = "S"
             connection?.stop()
-            phaseTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-                self?.scheduleNextPhase()
-            }
+            phaseTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in self?.scheduleNextPhase() }
         } else {
             let flip     = Double.random(in: 0...1) < 0.45
             let newDir: StepDirection = flip ? (lastDirection == .forward ? .backward : .forward) : lastDirection
             lastDirection    = newDir
             let speed        = Int.random(in: profile.minSpeed...profile.maxSpeed)
-            let duration     = Double.random(in: profile.minRunDuration...profile.maxRunDuration)
+            var duration     = Double.random(in: profile.minRunDuration...profile.maxRunDuration)
+            if let cap = arenaMax { duration = min(duration, cap) }
             currentBehaviour = "\(newDir == .forward ? "Moving right" : "Cutting left") @ \(Int(Double(speed)/255*100))%"
             targetDuration   = duration
+            connection?.activeStepLabel = newDir == .forward ? "F" : "B"
             Haptics.impact(.light)
             connection?.setSpeed(speed)
             connection?.send(newDir.rawValue)
-            phaseTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-                self?.scheduleNextPhase()
-            }
+            phaseTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in self?.scheduleNextPhase() }
         }
     }
 }

@@ -8,6 +8,9 @@ class ConnectionManager: ObservableObject {
     @Published var port: Int = 81
     @Published var errorMessage: String? = nil
 
+    // Live step label — written by RunEngine/CattleSimEngine, read by ManualView indicator
+    @Published var activeStepLabel: String = ""
+
     private var webSocketTask: URLSessionWebSocketTask?
     private var pingTimer: Timer?
 

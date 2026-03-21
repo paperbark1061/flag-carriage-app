@@ -32,22 +32,30 @@ struct ManualView: View {
     @State private var isHoldingLeft  = false
     @State private var isHoldingRight = false
 
-    // Bump state
-    @State private var bumpProgress: Double    = 0
+    @State private var bumpProgress: Double       = 0
     @State private var bumpDirection: StepDirection? = nil
-    @State private var bumpDisplayTimer: Timer? = nil
+    @State private var bumpDisplayTimer: Timer?   = nil
 
-    // Local display state
-    @State private var localDirection: String = "S"
-    @State private var localSpeed: Int        = 0
+    // Manual-driven local state (only used when NOT in an auto run)
+    @State private var manualDirection: String = "S"
+    @State private var manualSpeed: Int        = 0
 
-    // Recording
     @StateObject private var recorder  = RunRecorder()
     @State private var showSaveSheet   = false
     @State private var savedBanner     = false
     @State private var autoName        = ""
 
     var isMoving: Bool { isHoldingLeft || isHoldingRight || bumpDirection != nil }
+
+    // Show auto step label when an engine is driving; manual label otherwise
+    var displayDirection: String {
+        if !connection.activeStepLabel.isEmpty { return connection.activeStepLabel }
+        return manualDirection
+    }
+    var displaySpeed: Int {
+        if !connection.activeStepLabel.isEmpty { return connection.lastStatus.speed }
+        return manualSpeed
+    }
 
     var body: some View {
         NavigationView {
@@ -56,9 +64,19 @@ struct ManualView: View {
                 if !connection.isConnected { NotConnectedBanner() }
                 if recorder.isRecording    { RecordingBar(recorder: recorder) }
 
+                // Auto-run banner — shown when an engine is controlling the carriage
+                if !connection.activeStepLabel.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.circle.fill").foregroundColor(.orange)
+                        Text("Auto run in progress").font(.subheadline.weight(.semibold)).foregroundColor(.orange)
+                    }
+                    .frame(maxWidth: .infinity).padding(8)
+                    .background(Color.orange.opacity(0.1))
+                }
+
                 Spacer()
 
-                LocalDirectionIndicator(direction: localDirection, speed: localSpeed)
+                LocalDirectionIndicator(direction: displayDirection, speed: displaySpeed)
                     .padding(.bottom, 20)
 
                 HStack(alignment: .center, spacing: 16) {
@@ -72,13 +90,13 @@ struct ManualView: View {
                             let spd = Int(speed)
                             connection.setSpeed(spd); connection.backward()
                             recorder.record(direction: .backward, speed: spd)
-                            localDirection = "B"; localSpeed = spd
+                            manualDirection = "B"; manualSpeed = spd
                             Haptics.impact(.medium)
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
-                            localDirection = "S"; localSpeed = 0
+                            manualDirection = "S"; manualSpeed = 0
                             Haptics.impact(.soft)
                         }
                     )
@@ -106,13 +124,13 @@ struct ManualView: View {
                             let spd = Int(speed)
                             connection.setSpeed(spd); connection.forward()
                             recorder.record(direction: .forward, speed: spd)
-                            localDirection = "F"; localSpeed = spd
+                            manualDirection = "F"; manualSpeed = spd
                             Haptics.impact(.medium)
                         },
                         onHoldRelease: {
                             connection.stop()
                             recorder.record(direction: .stop, speed: 0)
-                            localDirection = "S"; localSpeed = 0
+                            manualDirection = "S"; manualSpeed = 0
                             Haptics.impact(.soft)
                         }
                     )
@@ -131,14 +149,14 @@ struct ManualView: View {
                     Slider(value: $speed, in: 50...255, step: 5)
                         .accentColor(.orange).padding(.horizontal)
                         .onChange(of: speed) { val in
-                            if isMoving { connection.setSpeed(Int(val)); localSpeed = Int(val) }
+                            if isMoving { connection.setSpeed(Int(val)); manualSpeed = Int(val) }
                         }
 
                     HStack(spacing: 12) {
                         ForEach([("Creep", 80), ("Trot", 150), ("Run", 230)], id: \.0) { label, val in
                             Button(label) {
                                 speed = Double(val)
-                                if isMoving { connection.setSpeed(val); localSpeed = val }
+                                if isMoving { connection.setSpeed(val); manualSpeed = val }
                                 Haptics.selection()
                             }.buttonStyle(PresetButtonStyle())
                         }
@@ -186,7 +204,7 @@ struct ManualView: View {
                     .padding(.bottom, 4)
 
                     if savedBanner {
-                        Text("✓ Cow saved to Programs")
+                        Text("\u{2713} Cow saved")
                             .font(.caption).foregroundColor(.green).transition(.opacity)
                     }
                 }
@@ -211,13 +229,11 @@ struct ManualView: View {
         }
     }
 
-    // MARK: - Motor control
-
     func stopMotor() {
         clearBumpState()
         connection.stop()
         recorder.record(direction: .stop, speed: 0)
-        localDirection = "S"; localSpeed = 0
+        manualDirection = "S"; manualSpeed = 0
         Haptics.impact(.rigid)
     }
 
@@ -228,9 +244,8 @@ struct ManualView: View {
         let spd = Int(speed)
         connection.setSpeed(spd); connection.send(direction.rawValue)
         recorder.record(direction: direction, speed: spd)
-        localDirection = direction == .forward ? "F" : "B"; localSpeed = spd
+        manualDirection = direction == .forward ? "F" : "B"; manualSpeed = spd
         Haptics.impact(.heavy)
-
         let bumpDuration = 3.0; let interval = 0.05; var elapsed = 0.0
         bumpDisplayTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [self] t in
             elapsed += interval
@@ -239,7 +254,7 @@ struct ManualView: View {
                 t.invalidate(); bumpDisplayTimer = nil
                 bumpDirection = nil; bumpProgress = 0
                 connection.stop(); recorder.record(direction: .stop, speed: 0)
-                localDirection = "S"; localSpeed = 0
+                manualDirection = "S"; manualSpeed = 0
                 Haptics.impact(.soft)
             }
         }
@@ -271,7 +286,7 @@ struct SaveCowSheet: View {
                         }.buttonStyle(.plain)
                     }
                 } header: { Text("Name your cow") }
-                footer: { Text("Auto-generated — tap \(Image(systemName: "shuffle")) for another, or type your own.").font(.caption) }
+                footer: { Text("Auto-generated \u{2014} tap \(Image(systemName: "shuffle")) for another, or type your own.").font(.caption) }
                 Section {
                     HStack { Text("Total duration"); Spacer()
                         Text(String(format: "%.1fs", cleanSteps.reduce(0) { $0 + $1.duration })).foregroundColor(.secondary) }
@@ -360,7 +375,6 @@ struct DirectionColumn: View {
                     .foregroundColor(isBumping ? color : .primary)
                 }
             }.buttonStyle(.plain)
-
             VStack(spacing: 4) {
                 Image(systemName: arrowIcon).font(.system(size: 30, weight: .bold))
                 Text("MOVE").font(.system(size: 11, weight: .bold))
@@ -441,7 +455,7 @@ struct RecordingBar: View {
             Spacer()
             Text(timeString(recorder.elapsedTime))
                 .font(.system(size: 13, weight: .semibold).monospacedDigit()).foregroundColor(.red)
-            Text("· \(recorder.steps.count) steps").font(.caption).foregroundColor(.secondary)
+            Text("\u{00b7} \(recorder.steps.count) steps").font(.caption).foregroundColor(.secondary)
         }
         .padding(.horizontal).padding(.vertical, 8)
         .background(Color.red.opacity(0.08))
@@ -492,7 +506,7 @@ struct NotConnectedBanner: View {
     var body: some View {
         HStack {
             Image(systemName: "wifi.slash")
-            Text("Not connected — go to Connect tab").font(.subheadline)
+            Text("Not connected \u{2014} go to Settings").font(.subheadline)
         }
         .foregroundColor(.white).padding(10)
         .frame(maxWidth: .infinity)
